@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Criar revisor</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --azul: #00609F; --azul-escuro: #063C63; --tinta: #10293D; --tinta-suave: #4C6478;
+    --branco: #FFFFFF; --verde: #13A438; --verde-fundo: #E8F7EC; --raio: 16px;
+    --sombra: 0 6px 20px rgba(6, 60, 99, 0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; margin: 0; min-height: 100vh;
+    background: #F7FBFE; color: var(--tinta); display: flex; align-items: center;
+    justify-content: center; padding: 20px;
+  }
+  .card {
+    background: var(--branco); border-radius: var(--raio); box-shadow: var(--sombra);
+    padding: 32px 28px; width: 100%; max-width: 380px;
+  }
+  h1 { font-family: 'Baloo 2', sans-serif; color: var(--azul-escuro); font-size: 1.3rem; margin: 0 0 4px; }
+  p.subtitulo { color: var(--tinta-suave); font-size: 0.85rem; margin: 0 0 22px; }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin: 14px 0 6px; }
+  input {
+    width: 100%; padding: 11px 12px; border: 1.5px solid #D6E4EE; border-radius: 10px;
+    font-family: inherit; font-size: 0.95rem;
+  }
+  input:focus { outline: none; border-color: var(--azul); }
+  button {
+    width: 100%; margin-top: 22px; border: none; border-radius: 13px; padding: 13px;
+    background: linear-gradient(135deg, var(--azul), var(--azul-escuro)); color: white;
+    font-size: 0.95rem; font-weight: 700; font-family: inherit; cursor: pointer;
+  }
+  .msg {
+    margin-top: 16px; background: var(--verde-fundo); color: #0e6b22;
+    padding: 10px 12px; border-radius: 10px; font-size: 0.85rem; font-weight: 600;
+  }
+  .aviso {
+    margin-top: 18px; font-size: 0.78rem; color: var(--tinta-suave); line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Criar / atualizar revisor</h1>
+    <p class="subtitulo">Página temporária de configuração inicial.</p>
+    <form method="POST" action="{{ url_for('painel.setup_inicial', token=token) }}">
+      <label for="username">Usuário (pra logar)</label>
+      <input type="text" id="username" name="username" required>
+      <label for="nome">Nome completo</label>
+      <input type="text" id="nome" name="nome" required>
+      <label for="senha">Senha</label>
+      <input type="password" id="senha" name="senha" required>
+      <button type="submit">Salvar</button>
+    </form>
+    {% if mensagem %}
+    <div class="msg">{{ mensagem }}</div>
+    {% endif %}
+    <p class="aviso">
+      Lembrete: depois de criar os revisores que precisar, apague a
+      variável SETUP_TOKEN no Render (aba Environment) pra desligar essa
+      página.
+    </p>
+  </div>
+</body>
+</html>
