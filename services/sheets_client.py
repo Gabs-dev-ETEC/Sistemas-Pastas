@@ -1,37 +1,3 @@
-"""
-Cliente para o Google Sheets, usado para manter uma planilha de controle
-com uma linha por aluno que envia documentação.
-
-Pré-requisito adicional (além do Drive API, que você já habilitou):
-  Cloud Console > APIs e Serviços > Biblioteca > procurar "Google Sheets API"
-  -> Ativar
-
-A planilha em si fica dentro do Drive Compartilhado (mesmo lugar dos PDFs),
-então quem já tem acesso ao Drive já enxerga ela automaticamente.
-
-IMPORTANTE sobre onde a planilha "nasce": ela é criada JÁ DIRETO dentro
-da pasta do Drive Compartilhado (usando o Drive API, igual os PDFs e
-pastas de aluno), e não criada "solta" fora dele. Isso importa porque
-muitas contas do Google Workspace têm uma política que bloqueia service
-accounts de criarem arquivos fora de um Drive Compartilhado -- criar
-direto dentro da pasta evita esse bloqueio. O locale ("pt_BR") é fixado
-numa segunda chamada, depois de criada, via spreadsheets().batchUpdate --
-necessário pra fórmula usada (NETWORKDAYS) funcionar com o separador
-certo (ponto-e-vírgula, padrão de planilhas em português, diferente do
-inglês que usa vírgula).
-
-Colunas da planilha:
-  Nome | CPF | Curso | Data de Envio | Dias Úteis desde Envio | Status
-
-"Dias Úteis desde Envio" é uma FÓRMULA (=NETWORKDAYS), não um número fixo
--- se atualiza sozinha toda vez que a planilha é aberta, sem precisar de
-nenhum job/tarefa agendada rodando por trás.
-
-"Status" começa sempre como "Pendente". A secretaria troca manualmente
-para "Entregue" na planilha quando envia o diploma pro aluno -- o sistema
-nunca sobrescreve essa coluna depois de criada.
-"""
-
 import json
 import re
 
@@ -43,9 +9,12 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-CABECALHO = ["Nome", "CPF", "Curso", "Data de Envio", "Dias Úteis desde Envio", "Status"]
+CABECALHO = [
+    "Nome", "CPF", "Curso", "Data de Envio", "Dias Úteis desde Envio", "Status", "Aprovado por"
+]
 COLUNA_DATA_ENVIO = "D"
 COLUNA_DIAS_UTEIS = "E"
+COLUNA_APROVADO_POR = "G"
 STATUS_PADRAO = "Pendente"
 
 
@@ -77,7 +46,7 @@ class SheetsClient:
     def _inicializar_planilha(self, spreadsheet_id: str) -> None:
         self.service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
-            range="A1:F1",
+            range="A1:G1",
             valueInputOption="RAW",
             body={"values": [CABECALHO]},
         ).execute()
@@ -179,6 +148,13 @@ class SheetsClient:
                             "fields": "pixelSize",
                         }
                     },
+                    {
+                        "updateDimensionProperties": {
+                            "range": {"sheetId": 0, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 7},
+                            "properties": {"pixelSize": 180},  # Aprovado por
+                            "fields": "pixelSize",
+                        }
+                    },
                     # Data de Envio: formata como data brasileira de verdade
                     {
                         "repeatCell": {
@@ -218,7 +194,7 @@ class SheetsClient:
                     # Borda fina embaixo do cabeçalho, separando ele dos dados
                     {
                         "updateBorders": {
-                            "range": {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 6},
+                            "range": {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 7},
                             "bottom": {
                                 "style": "SOLID_MEDIUM",
                                 "color": {"red": 0.10, "green": 0.22, "blue": 0.45},
@@ -231,7 +207,7 @@ class SheetsClient:
                     {
                         "setBasicFilter": {
                             "filter": {
-                                "range": {"sheetId": 0, "startRowIndex": 0, "startColumnIndex": 0, "endColumnIndex": 6}
+                                "range": {"sheetId": 0, "startRowIndex": 0, "startColumnIndex": 0, "endColumnIndex": 7}
                             }
                         }
                     },
@@ -315,10 +291,10 @@ class SheetsClient:
             .values()
             .append(
                 spreadsheetId=spreadsheet_id,
-                range="A:F",
+                range="A:G",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
-                body={"values": [[nome, cpf, curso, data_envio_str, "", STATUS_PADRAO]]},
+                body={"values": [[nome, cpf, curso, data_envio_str, "", STATUS_PADRAO, ""]]},
             )
             .execute()
         )
@@ -333,6 +309,40 @@ class SheetsClient:
             range=f"{COLUNA_DIAS_UTEIS}{linha}",
             valueInputOption="USER_ENTERED",
             body={"values": [[formula]]},
+        ).execute()
+
+    def marcar_aprovado(self, spreadsheet_id: str, cpf: str, aprovado_por: str) -> None:
+        """
+        Preenche a coluna "Aprovado por" com o nome do revisor que aprovou
+        a documentação. Procura a ocorrência mais recente do CPF na
+        planilha (última linha que bate) -- cobre o caso de reenvio depois
+        de uma reprovação, onde o CPF aparece mais de uma vez.
+
+        Não levanta erro se não achar a linha (planilha apagada/renomeada
+        manualmente, por exemplo) -- só não escreve nada, pra não travar
+        a aprovação por causa disso.
+        """
+        resposta = (
+            self.service.spreadsheets()
+            .values()
+            .get(spreadsheetId=spreadsheet_id, range="B:B")
+            .execute()
+        )
+        valores = resposta.get("values", [])
+
+        linha_encontrada = None
+        for indice, linha in enumerate(valores, start=1):
+            if linha and linha[0] == cpf:
+                linha_encontrada = indice
+
+        if linha_encontrada is None:
+            return
+
+        self.service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"{COLUNA_APROVADO_POR}{linha_encontrada}",
+            valueInputOption="USER_ENTERED",
+            body={"values": [[aprovado_por]]},
         ).execute()
 
 
