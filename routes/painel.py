@@ -1,19 +1,3 @@
-"""
-Painel de revisão da documentação enviada pelos alunos.
-
-Fluxo:
-  1. Revisor loga (Flask-Login) e vê a lista de alunos com status
-     "aguardando_validacao".
-  2. Abre um aluno e vê as fotos de cada documento enviado (guardadas em
-     DocumentoEnviado.conteudo enquanto aguardam revisão).
-  3. Aprova -> gera o PDF final (documentos + certificado de capacitação,
-     igual ao fluxo de routes/upload.py), sobe pro Drive e descarta as
-     imagens do banco (só existiam pra essa revisão).
-     Reprova -> marca os documentos problemáticos como "ilegivel" com o
-     motivo, e libera o CPF do aluno pra reenvio (ver comentário em
-     routes/upload.py sobre o status REPROVADO ser tratado como "novo").
-"""
-
 import io
 from datetime import datetime
 
@@ -61,16 +45,7 @@ def _detectar_mimetype(conteudo: bytes) -> str:
 
 @painel_bp.route("/setup-inicial", methods=["GET", "POST"])
 def setup_inicial():
-    """
-    Cria (ou reseta a senha de) um usuário revisor sem precisar de acesso
-    ao Shell do Render (que é pago no plano free). Só funciona se a
-    variável de ambiente SETUP_TOKEN estiver configurada -- sem ela, essa
-    rota devolve 404 como se não existisse.
 
-    IMPORTANTE: depois de criar os revisores que precisar, apague a
-    variável SETUP_TOKEN no Render (aba Environment). Isso desliga essa
-    rota automaticamente, sem precisar mexer em nenhum código de novo.
-    """
     token_esperado = current_app.config.get("SETUP_TOKEN", "")
     if not token_esperado or request.args.get("token") != token_esperado:
         abort(404)
