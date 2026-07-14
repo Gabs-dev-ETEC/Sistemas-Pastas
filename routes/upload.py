@@ -76,7 +76,7 @@ def enviar():
     }
     obrigatorios = documentos_aplicaveis(respostas)
 
-    aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, forma_envio=forma_envio)
+    aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, email=email, forma_envio=forma_envio)
     db.session.add(aluno)
     db.session.flush()  # garante aluno.id antes de criar os documentos
 
