@@ -1,10 +1,4 @@
-"""
-Converte a imagem enviada pelo aluno em um PDF.
 
-Usa img2pdf para a conversão da imagem em si, porque ele não recomprime
-a imagem (ao contrário do Pillow), preservando a qualidade da foto do
-documento -- importante pra manter o texto legível.
-"""
 
 import io
 import re
@@ -59,14 +53,30 @@ def imagem_para_pdf(imagem_bytes: bytes) -> bytes:
     return img2pdf.convert(_normalizar_imagem(imagem_bytes))
 
 
-def documentos_para_pdf_unico(imagens: list[bytes]) -> bytes:
+def eh_pdf(conteudo: bytes) -> bool:
+    """Verifica pela assinatura do arquivo (%PDF-) se o conteúdo já é um PDF."""
+    return bool(conteudo) and conteudo[:5] == b"%PDF-"
+
+
+def documento_para_pdf(conteudo: bytes) -> bytes:
     """
-    Recebe os bytes de várias imagens (uma por documento, na ordem em que
-    devem aparecer) e devolve os bytes de um único PDF com uma página por
-    imagem, na mesma ordem.
+    Recebe os bytes de um documento enviado pelo aluno -- que agora pode
+    ser uma foto (câmera) ou um arquivo já em PDF (opção "Anexar arquivo"
+    ou o envio de "PDF único com tudo") -- e devolve os bytes de um PDF.
+    Se já for PDF, devolve como está; se for imagem, converte.
     """
-    imagens_normalizadas = [_normalizar_imagem(img) for img in imagens]
-    return img2pdf.convert(imagens_normalizadas)
+    if eh_pdf(conteudo):
+        return conteudo
+    return imagem_para_pdf(conteudo)
+
+
+def documentos_para_pdf_unico(conteudos: list[bytes]) -> bytes:
+    """
+    Recebe os bytes de vários documentos (foto ou PDF, um por documento,
+    na ordem em que devem aparecer) e devolve os bytes de um único PDF
+    com todas as páginas, na mesma ordem.
+    """
+    return juntar_pdfs([documento_para_pdf(c) for c in conteudos])
 
 
 def juntar_pdfs(pdfs_em_bytes: list[bytes]) -> bytes:
