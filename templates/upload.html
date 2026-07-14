@@ -523,6 +523,7 @@
 
         <label for="email-exibicao">E-mail</label>
         <input type="text" id="email-exibicao" readonly>
+        <input type="hidden" id="email" name="email">
 
         <label for="telefone-exibicao">Telefone</label>
         <input type="text" id="telefone-exibicao" readonly>
@@ -767,6 +768,7 @@ btnBuscarCPF.addEventListener("click", async () => {
     document.getElementById("curso-exibicao").value = resultado.curso || "";
     document.getElementById("curso").value = resultado.curso || "";
     document.getElementById("email-exibicao").value = resultado.email || "";
+    document.getElementById("email").value = resultado.email || "";
     document.getElementById("telefone-exibicao").value = resultado.telefone || "";
 
     mostrarStatusBusca("", "#4C6478");
@@ -912,6 +914,7 @@ document.getElementById("btn-enviar").addEventListener("click", async (e) => {
     formData.append("nome", document.getElementById("nome").value);
     formData.append("cpf", document.getElementById("cpf").value);
     formData.append("curso", document.getElementById("curso").value);
+    formData.append("email", document.getElementById("email").value);
     formData.append("sexo", document.querySelector('input[name="sexo"]:checked').value);
     if (document.getElementById("rg_sem_cpf").checked) formData.append("rg_sem_cpf", "on");
 
