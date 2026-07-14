@@ -28,6 +28,11 @@
   .item .nome { font-weight: 700; font-size: 0.98rem; }
   .item .detalhe { color: var(--tinta-suave); font-size: 0.85rem; margin-top: 2px; }
   .item .seta { color: var(--azul); font-size: 1.2rem; }
+  .btn-excluir {
+    background: none; border: none; color: var(--vermelho, #C5221F); font-size: 0.8rem;
+    font-weight: 600; cursor: pointer; padding: 6px 8px; border-radius: 8px; white-space: nowrap;
+  }
+  .btn-excluir:hover { background: #FDEDEC; }
   .vazio {
     max-width: 640px; margin: 40px auto; text-align: center; color: var(--tinta-suave); font-size: 0.9rem;
   }
@@ -41,16 +46,41 @@
 
   <div class="lista">
     {% for aluno in alunos %}
-    <a class="item" href="{{ url_for('painel.revisar', aluno_id=aluno.id) }}">
-      <div>
-        <div class="nome">{{ aluno.nome }}</div>
-        <div class="detalhe">{{ aluno.curso }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</div>
-      </div>
-      <span class="seta">→</span>
-    </a>
+    <div class="item">
+      <a style="flex:1; display:flex; justify-content:space-between; align-items:center; text-decoration:none; color:inherit;" href="{{ url_for('painel.revisar', aluno_id=aluno.id) }}">
+        <div>
+          <div class="nome">{{ aluno.nome }}</div>
+          <div class="detalhe">{{ aluno.curso }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</div>
+        </div>
+        <span class="seta">→</span>
+      </a>
+      <button type="button" class="btn-excluir" data-aluno-id="{{ aluno.id }}" data-aluno-nome="{{ aluno.nome }}">Excluir</button>
+    </div>
     {% else %}
     <div class="vazio">Nenhum aluno aguardando revisão no momento.</div>
     {% endfor %}
   </div>
+
+<script>
+document.querySelectorAll('.btn-excluir').forEach((botao) => {
+  botao.addEventListener('click', async () => {
+    const alunoId = botao.dataset.alunoId;
+    const alunoNome = botao.dataset.alunoNome;
+    if (!confirm(`Excluir o envio de "${alunoNome}"? Essa ação não pode ser desfeita.`)) return;
+
+    botao.disabled = true;
+    botao.textContent = 'Excluindo...';
+    try {
+      const resp = await fetch(`/painel/aluno/${alunoId}/excluir`, { method: 'POST' });
+      if (!resp.ok) throw new Error('Falha ao excluir');
+      botao.closest('.item').remove();
+    } catch (e) {
+      alert('Não foi possível excluir. Tente novamente.');
+      botao.disabled = false;
+      botao.textContent = 'Excluir';
+    }
+  });
+});
+</script>
 </body>
 </html>
