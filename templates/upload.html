@@ -392,6 +392,7 @@
 
   #scanner-modal { position: fixed; inset: 0; background: #000; z-index: 1000; display: flex; flex-direction: column; font-family: 'Inter', system-ui, sans-serif; }
   #scanner-modal.hidden { display: none; }
+  .hidden { display: none; }
   .scanner-view { flex: 1; display: none; flex-direction: column; position: relative; overflow: hidden; }
   .scanner-view.ativo { display: flex; }
   .scanner-topo { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; color: white; }
@@ -480,7 +481,7 @@
       </div>
     </section>
 
-    <!-- TELA 1 · DADOS PESSOAIS -->
+    <!-- TELA 1 · CPF -->
     <section class="tela" data-tela="1">
       <h2>Seus dados</h2>
       <p class="subtitulo" style="text-align:left; margin-top:4px;">Informe seu CPF pra gente confirmar sua matrícula.</p>
@@ -496,8 +497,23 @@
       </div>
       <div class="status" id="status-busca-cpf"></div>
 
-      <!-- Revelado quando o CPF é novo (nenhum envio anterior) -->
-      <div id="bloco-dados-novo" class="hidden" style="margin-top:6px;">
+      <!-- Revelado quando o CPF já está aguardando revisão -->
+      <div id="bloco-aguardando" class="hidden aviso-atencao" style="margin-top:18px; background:var(--azul-fundo); border-color:var(--azul-claro); color:var(--azul-escuro);">
+        <span>Sua documentação já foi enviada e está aguardando revisão da secretaria. Assim que for avaliada, você será avisado(a).</span>
+      </div>
+
+      <!-- Revelado quando o CPF já foi aprovado -->
+      <div id="bloco-ja-aprovado" class="hidden aviso-atencao" style="margin-top:18px; background:var(--verde-fundo); border-color:var(--verde); color:#0e6b22;">
+        <span>Sua documentação já foi conferida e aprovada. Se precisar reenviar algo, fale com a secretaria pelo WhatsApp.</span>
+      </div>
+    </section>
+
+    <!-- TELA 2 · DADOS DA API + SEXO E RG -->
+    <section class="tela" data-tela="2">
+      <h2>Confirme seus dados</h2>
+      <p class="subtitulo" style="text-align:left; margin-top:4px;">Confira se está tudo certo e complete as informações abaixo.</p>
+
+      <div id="bloco-dados-novo">
         <label for="nome">Nome completo</label>
         <input type="text" id="nome" name="nome" readonly>
 
@@ -511,59 +527,34 @@
         <label for="telefone-exibicao">Telefone</label>
         <input type="text" id="telefone-exibicao" readonly>
 
-        <p class="subtitulo" style="text-align:left; margin-top:2px;">Confira se os dados acima estão corretos antes de continuar.</p>
+        <label style="margin-top:14px;">Sexo</label>
+        <div class="pill-group">
+          <label class="pill">
+            <input type="radio" name="sexo" value="masculino" required>
+            <span>Masculino</span>
+          </label>
+          <label class="pill">
+            <input type="radio" name="sexo" value="feminino" required>
+            <span>Feminino</span>
+          </label>
+        </div>
+
+        <div class="toggle-linha">
+          <span class="rotulo">Meu RG não possui o número do CPF impresso</span>
+          <label class="chave">
+            <input type="checkbox" id="rg_sem_cpf" name="rg_sem_cpf">
+            <span class="trilho"></span>
+            <span class="bola"></span>
+          </label>
+        </div>
 
         <div class="botoes">
-          <button type="button" class="btn btn-primario" onclick="irPara(2)">
+          <button type="button" class="btn btn-primario" onclick="validarEAvancar()">
             Continuar
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
           </button>
+          <button type="button" class="btn btn-secundario" onclick="irPara(1)">Voltar</button>
         </div>
-      </div>
-
-      <!-- Revelado quando o CPF já está aguardando revisão -->
-      <div id="bloco-aguardando" class="hidden aviso-atencao" style="margin-top:18px; background:var(--azul-fundo); border-color:var(--azul-claro); color:var(--azul-escuro);">
-        <span>Sua documentação já foi enviada e está aguardando revisão da secretaria. Assim que for avaliada, você será avisado(a).</span>
-      </div>
-
-      <!-- Revelado quando o CPF já foi aprovado -->
-      <div id="bloco-ja-aprovado" class="hidden aviso-atencao" style="margin-top:18px; background:var(--verde-fundo); border-color:var(--verde); color:#0e6b22;">
-        <span>Sua documentação já foi conferida e aprovada. Se precisar reenviar algo, fale com a secretaria pelo WhatsApp.</span>
-      </div>
-    </section>
-
-    <!-- TELA 2 · SEXO E RG -->
-    <section class="tela" data-tela="2">
-      <h2>Mais alguns detalhes</h2>
-      <p class="subtitulo" style="text-align:left; margin-top:4px;">Isso ajuda a definir quais documentos você precisa enviar.</p>
-
-      <label>Sexo</label>
-      <div class="pill-group">
-        <label class="pill">
-          <input type="radio" name="sexo" value="masculino" required>
-          <span>Masculino</span>
-        </label>
-        <label class="pill">
-          <input type="radio" name="sexo" value="feminino" required>
-          <span>Feminino</span>
-        </label>
-      </div>
-
-      <div class="toggle-linha">
-        <span class="rotulo">Meu RG não possui o número do CPF impresso</span>
-        <label class="chave">
-          <input type="checkbox" id="rg_sem_cpf" name="rg_sem_cpf">
-          <span class="trilho"></span>
-          <span class="bola"></span>
-        </label>
-      </div>
-
-      <div class="botoes">
-        <button type="button" class="btn btn-primario" onclick="validarEAvancar()">
-          Continuar
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-        </button>
-        <button type="button" class="btn btn-secundario" onclick="irPara(1)">Voltar</button>
       </div>
     </section>
 
@@ -721,7 +712,6 @@ campoCPF.addEventListener("input", () => {
 // ============================================================
 const btnBuscarCPF = document.getElementById("btn-buscar-cpf");
 const statusBuscaCPF = document.getElementById("status-busca-cpf");
-const blocoDadosNovo = document.getElementById("bloco-dados-novo");
 const blocoAguardando = document.getElementById("bloco-aguardando");
 const blocoJaAprovado = document.getElementById("bloco-ja-aprovado");
 
@@ -731,7 +721,6 @@ function mostrarStatusBusca(mensagem, cor) {
 }
 
 function esconderBlocosPosBusca() {
-  blocoDadosNovo.classList.add("hidden");
   blocoAguardando.classList.add("hidden");
   blocoJaAprovado.classList.add("hidden");
 }
@@ -773,15 +762,15 @@ btnBuscarCPF.addEventListener("click", async () => {
       return;
     }
 
-    // status === "novo": preenche os dados vindos do SIGA pra pessoa conferir
+    // status === "novo": preenche os dados vindos do SIGA e avança pra tela de confirmação
     document.getElementById("nome").value = resultado.nome || "";
     document.getElementById("curso-exibicao").value = resultado.curso || "";
     document.getElementById("curso").value = resultado.curso || "";
     document.getElementById("email-exibicao").value = resultado.email || "";
     document.getElementById("telefone-exibicao").value = resultado.telefone || "";
 
-    mostrarStatusBusca("Dados encontrados! Confira e complete abaixo.", "#137333");
-    blocoDadosNovo.classList.remove("hidden");
+    mostrarStatusBusca("", "#4C6478");
+    irPara(2);
   } catch (e) {
     mostrarStatusBusca("Erro de conexão. Tente novamente.", "#c5221f");
   } finally {
