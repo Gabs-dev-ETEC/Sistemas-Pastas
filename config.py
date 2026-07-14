@@ -32,3 +32,9 @@ class Config:
     # Flask). Gere um valor aleatório longo, por exemplo com:
     # python3 -c "import secrets; print(secrets.token_hex(32))"
     SECRET_KEY = os.environ.get("SECRET_KEY", "")
+
+    # Token temporário pra liberar a rota /painel/setup-inicial, usada só
+    # pra criar o primeiro revisor sem precisar do Shell do Render (pago
+    # no plano free). Configure essa variável, use a rota, depois APAGUE
+    # ela no Render -- sem ela, a rota volta a responder 404 sozinha.
+    SETUP_TOKEN = os.environ.get("SETUP_TOKEN", "")
