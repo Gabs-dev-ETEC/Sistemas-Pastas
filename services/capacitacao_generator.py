@@ -1,21 +1,3 @@
-"""
-Gera o PDF de capacitacao de um aluno a partir de um modelo .docx.
-
-Como funciona:
-1. Cada curso tem um modelo .docx (ex: modelo_capacitacao_eletrotecnica.docx)
-   com os marcadores {{NOME}} e {{CPF}} no lugar do nome/CPF do aluno.
-   As datas do modelo NAO mudam -- ficam fixas, como voces ja fazem hoje.
-2. Preenchemos uma copia do modelo trocando os marcadores pelos dados
-   do aluno (find & replace direto no XML do docx).
-3. Convertemos essa copia para PDF usando o LibreOffice em modo headless
-   (precisa estar instalado no servidor -- ver Dockerfile).
-
-Para cadastrar um novo curso, monte o .docx do jeito que ja e feito hoje,
-troque o nome e o CPF do aluno de exemplo por {{NOME}} e {{CPF}} (usando
-Localizar e Substituir no proprio Word mesmo resolve, contanto que o nome
-e o cpf estejam escritos de forma identica em todas as ocorrencias), e
-salve em TEMPLATES_DIR com o nome sanitizado do curso.
-"""
 
 import shutil
 import subprocess
@@ -30,15 +12,43 @@ class ModeloNaoEncontrado(Exception):
     pass
 
 
+def _slugs_disponiveis() -> list[str]:
+    prefixo = "modelo_capacitacao_"
+    return [
+        arquivo.stem[len(prefixo):]
+        for arquivo in TEMPLATES_DIR.glob(f"{prefixo}*.docx")
+    ]
+
+
 def _caminho_modelo(curso_sanitizado: str) -> Path:
-    caminho = TEMPLATES_DIR / f"modelo_capacitacao_{curso_sanitizado}.docx"
-    if not caminho.exists():
-        raise ModeloNaoEncontrado(
-            f"Nao existe modelo de capacitacao para o curso '{curso_sanitizado}' "
-            f"em {caminho}. Cadastre o arquivo .docx com os marcadores "
-            f"{{{{NOME}}}} e {{{{CPF}}}} nesse caminho."
-        )
-    return caminho
+    caminho_exato = TEMPLATES_DIR / f"modelo_capacitacao_{curso_sanitizado}.docx"
+    if caminho_exato.exists():
+        return caminho_exato
+
+    # O nome do curso que vem do SIGA raramente bate 100% com o slug do
+    # arquivo (ex: SIGA manda "tecnico-em-eletrotecnica", o arquivo se
+    # chama so "eletrotecnica"). Em vez de depender de nome identico,
+    # tenta achar um slug cadastrado cujas palavras estejam todas contidas
+    # no nome do curso (em qualquer ordem) -- e fica com o mais especifico
+    # (mais palavras) em caso de mais de um bater.
+    tokens_curso = set(curso_sanitizado.split("-"))
+    candidatos = []
+    for slug in _slugs_disponiveis():
+        tokens_slug = set(slug.split("-"))
+        if tokens_slug and tokens_slug.issubset(tokens_curso):
+            candidatos.append(slug)
+
+    if candidatos:
+        melhor_slug = max(candidatos, key=lambda s: len(s.split("-")))
+        return TEMPLATES_DIR / f"modelo_capacitacao_{melhor_slug}.docx"
+
+    raise ModeloNaoEncontrado(
+        f"Nao existe modelo de capacitacao para o curso '{curso_sanitizado}' "
+        f"(nem por nome exato, nem por aproximacao) em {TEMPLATES_DIR}. "
+        f"Modelos cadastrados hoje: {', '.join(_slugs_disponiveis()) or '(nenhum)'}. "
+        f"Cadastre o arquivo .docx com os marcadores {{{{NOME}}}} e {{{{CPF}}}} "
+        f"nesse caminho, ou ajuste o nome do arquivo pra bater com o curso."
+    )
 
 
 def formatar_cpf(cpf: str) -> str:
