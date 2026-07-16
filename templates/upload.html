@@ -306,6 +306,22 @@
   }
   .doc-item.enviado .doc-botao { background: var(--verde); }
 
+  /* -------- Divisor "ou" -------- */
+  .divisor-ou {
+    display: flex; align-items: center; gap: 12px; margin: 26px 0;
+    color: var(--tinta-suave); font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+  }
+  .divisor-ou::before, .divisor-ou::after { content: ""; flex: 1; height: 1px; background: #E3E8EE; }
+
+  /* -------- Checklist do PDF único -------- */
+  #checklist-pdf-unico { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .checklist-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border: 1.5px solid #E3E8EE; border-radius: 12px;
+    font-size: 0.92rem; color: var(--tinta); cursor: pointer;
+  }
+  .checklist-item input[type="checkbox"] { width: 18px; height: 18px; flex: none; accent-color: var(--azul); }
+
   /* -------- Botões -------- */
   .botoes { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; }
 
@@ -563,12 +579,40 @@
     <!-- TELA 3 · DOCUMENTOS -->
     <section class="tela" data-tela="3">
       <h2 id="titulo-documentos">Envie seus documentos</h2>
-      <p class="subtitulo" style="text-align:left; margin-top:4px;" id="subtitulo-documentos">Toque em cada item para tirar uma foto ou escolher da galeria.</p>
+      <p class="subtitulo" style="text-align:left; margin-top:4px;">Escolha <strong>uma</strong> das duas formas abaixo — não precisa fazer as duas.</p>
+
+      <h3 style="margin:22px 0 4px; color:var(--azul-escuro);">Documentos separados</h3>
+      <p class="subtitulo" style="text-align:left; margin-top:0;" id="subtitulo-documentos">Toque em cada item para tirar uma foto ou escolher da galeria.</p>
 
       <div id="lista-documentos"></div>
 
       <div class="botoes">
-        <button type="submit" class="btn btn-primario" id="btn-enviar">Enviar documentação</button>
+        <button type="button" class="btn btn-primario" id="btn-enviar">Enviar documentos separados</button>
+      </div>
+
+      <div class="divisor-ou"><span>ou</span></div>
+
+      <h3 style="margin:0 0 4px; color:var(--azul-escuro);">Um único PDF com tudo</h3>
+      <p class="subtitulo" style="text-align:left; margin-top:0;">Junte todos os documentos num só arquivo PDF e envie aqui.</p>
+
+      <div class="doc-item" id="bloco-pdf-completo">
+        <div class="doc-icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+        <div class="doc-texto">
+          <div class="doc-label">PDF com toda a documentação</div>
+          <small>Nenhum arquivo selecionado</small>
+        </div>
+        <button type="button" class="doc-botao" onclick="document.getElementById('input-pdf-completo').click()">Anexar</button>
+        <input type="file" accept="application/pdf" name="pdf_completo" id="input-pdf-completo">
+      </div>
+
+      <label style="margin-top:16px;">Esse PDF contém:</label>
+      <div id="checklist-pdf-unico"></div>
+
+      <div class="botoes">
+        <button type="button" class="btn btn-primario" id="btn-enviar-pdf-unico">Enviar PDF único</button>
+      </div>
+
+      <div class="botoes">
         <button type="button" class="btn btn-secundario" onclick="irPara(2)">Voltar</button>
       </div>
       <div class="status" id="status-mensagem"></div>
