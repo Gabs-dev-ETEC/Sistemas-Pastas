@@ -642,7 +642,7 @@
         <div id="checklist-pdf-unico"></div>
 
         <div class="botoes">
-          <button type="button" class="btn btn-primario" id="btn-enviar-pdf-unico">Enviar PDF único</button>
+          <button type="button" class="btn btn-primario" id="btn-enviar-pdf-unico" disabled>Enviar PDF único</button>
         </div>
       </div>
 
@@ -706,7 +706,10 @@ function irPara(indice) {
   telaAtual = indice;
   atualizarTrilha();
   window.scrollTo({ top: 0, behavior: "smooth" });
-  if (indice === 3) renderizarDocumentos();
+  if (indice === 3) {
+    renderizarDocumentos();
+    renderizarChecklistPdfUnico();
+  }
 }
 
 function validarEAvancar() {
@@ -729,9 +732,30 @@ function validarEAvancar() {
 function reiniciar() {
   document.querySelectorAll('input[type=text], select').forEach(el => el.value = "");
   document.querySelectorAll('input[type=checkbox], input[type=radio]').forEach(el => el.checked = false);
+  document.getElementById("forma-individual").checked = true;
+  document.getElementById("secao-individual").classList.add("ativa");
+  document.getElementById("secao-pdf-unico").classList.remove("ativa");
+  const blocoPdf = document.getElementById("bloco-pdf-completo");
+  blocoPdf.classList.remove("enviado");
+  blocoPdf.querySelector(".doc-icone").innerHTML = ICONE_UPLOAD;
+  blocoPdf.querySelector("small").textContent = "Nenhum arquivo selecionado";
+  blocoPdf.querySelector(".doc-botao").textContent = "Anexar";
+  document.getElementById("input-pdf-completo").value = "";
+  document.getElementById("checklist-pdf-unico").innerHTML = "";
   listaDiv.innerHTML = "";
   irPara(0);
 }
+
+// ============================================================
+// Alternância entre "documentos separados" e "PDF único"
+// ============================================================
+document.querySelectorAll('input[name="forma-envio"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    const pdfUnico = document.getElementById("forma-pdf-unico").checked;
+    document.getElementById("secao-individual").classList.toggle("ativa", !pdfUnico);
+    document.getElementById("secao-pdf-unico").classList.toggle("ativa", pdfUnico);
+  });
+});
 
 // ============================================================
 // Trilha de progresso (SVG)
@@ -928,12 +952,28 @@ function renderizarChecklistPdfUnico() {
     label.innerHTML = `<input type="checkbox" value="${doc.id}"><span>${doc.label}</span>`;
     div.appendChild(label);
   });
+
+  div.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.addEventListener("change", atualizarBotaoPdfUnico);
+  });
+
+  atualizarBotaoPdfUnico();
 }
 
 function checklistIdsMarcados() {
   return Array.from(
     document.querySelectorAll('#checklist-pdf-unico input[type="checkbox"]:checked')
   ).map((i) => i.value);
+}
+
+// O botão de enviar o PDF único só fica habilitado quando o arquivo foi
+// anexado E todos os itens do checklist estiverem marcados -- garante que
+// o aluno confirmou a presença de cada documento antes de poder enviar.
+function atualizarBotaoPdfUnico() {
+  const temArquivo = document.getElementById("input-pdf-completo").files.length > 0;
+  const checkboxes = document.querySelectorAll('#checklist-pdf-unico input[type="checkbox"]');
+  const todosMarcados = checkboxes.length > 0 && Array.from(checkboxes).every((c) => c.checked);
+  document.getElementById("btn-enviar-pdf-unico").disabled = !(temArquivo && todosMarcados);
 }
 
 // Wiring do bloco fixo de upload do PDF único (não é recriado a cada
@@ -947,6 +987,7 @@ inputPdfCompleto.addEventListener("change", () => {
     blocoPdfCompleto.querySelector("small").textContent = inputPdfCompleto.files[0].name;
     blocoPdfCompleto.querySelector(".doc-botao").textContent = "Trocar";
   }
+  atualizarBotaoPdfUnico();
 });
 
 // Recalcula os documentos exigidos se o aluno voltar e mudar uma resposta
@@ -1057,6 +1098,62 @@ document.getElementById("btn-enviar").addEventListener("click", async (e) => {
   } finally {
     btn.disabled = false;
     btn.textContent = "Enviar documentação";
+  }
+});
+
+document.getElementById("btn-enviar-pdf-unico").addEventListener("click", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("btn-enviar-pdf-unico");
+  const statusDiv = document.getElementById("status-mensagem");
+
+  if (inputPdfCompleto.files.length === 0) {
+    statusDiv.style.color = "#c5221f";
+    statusDiv.textContent = "Anexe o PDF com a documentação completa antes de enviar.";
+    return;
+  }
+
+  const checkboxes = document.querySelectorAll('#checklist-pdf-unico input[type="checkbox"]');
+  const idsMarcados = checklistIdsMarcados();
+  if (idsMarcados.length < checkboxes.length) {
+    statusDiv.style.color = "#c5221f";
+    statusDiv.textContent = "Marque no checklist todos os documentos que estão dentro do PDF antes de enviar.";
+    return;
+  }
+
+  btn.disabled = true;
+  statusDiv.style.color = "#4C6478";
+  statusDiv.textContent = "";
+
+  try {
+    const formData = new FormData();
+    formData.append("nome", document.getElementById("nome").value);
+    formData.append("cpf", document.getElementById("cpf").value);
+    formData.append("curso", document.getElementById("curso").value);
+    formData.append("email", document.getElementById("email").value);
+    formData.append("sexo", document.querySelector('input[name="sexo"]:checked').value);
+    if (document.getElementById("rg_sem_cpf").checked) formData.append("rg_sem_cpf", "on");
+    formData.append("forma_envio", "pdf_unico");
+    formData.append("checklist", JSON.stringify(idsMarcados));
+    formData.append("pdf_completo", inputPdfCompleto.files[0]);
+
+    btn.textContent = "Enviando documentação...";
+    const resposta = await fetch("/enviar", { method: "POST", body: formData });
+    const resultado = await resposta.json();
+
+    if (resposta.ok) {
+      document.getElementById("link-whatsapp").href =
+        `https://wa.me/${NUMERO_WHATSAPP}?text=${encodeURIComponent(MENSAGEM_WHATSAPP)}`;
+      irPara(4);
+    } else {
+      statusDiv.style.color = "#c5221f";
+      statusDiv.textContent = resultado.erro || "Ocorreu um erro ao enviar.";
+    }
+  } catch (err) {
+    statusDiv.style.color = "#c5221f";
+    statusDiv.textContent = "Erro de conexão. Tente novamente.";
+  } finally {
+    btn.textContent = "Enviar PDF único";
+    atualizarBotaoPdfUnico();
   }
 });
 </script>
