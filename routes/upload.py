@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
@@ -58,7 +59,8 @@ def buscar_cpf():
 def enviar():
     nome = request.form.get("nome", "").strip()
     curso = request.form.get("curso", "").strip()
-    cpf = request.form.get("cpf", "").strip()
+    cpf_bruto = request.form.get("cpf", "").strip()
+    cpf = "".join(c for c in cpf_bruto if c.isdigit())
     email = request.form.get("email", "").strip()
     telefone = request.form.get("telefone", "").strip()
     sexo = request.form.get("sexo", "").strip()
@@ -76,8 +78,30 @@ def enviar():
     }
     obrigatorios = documentos_aplicaveis(respostas)
 
-    aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, email=email, forma_envio=forma_envio)
-    db.session.add(aluno)
+    # Se já existe um registro desse CPF (ex: envio anterior foi reprovado
+    # e a pessoa está reenviando), reaproveita a linha em vez de tentar
+    # inserir outra -- cpf é unique, então um INSERT novo aqui sempre
+    # daria IntegrityError. Também limpa documentos e avaliação anteriores.
+    aluno = Aluno.query.filter_by(cpf=cpf).first()
+    if aluno is not None:
+        DocumentoEnviado.query.filter_by(aluno_id=aluno.id).delete()
+        aluno.nome = nome
+        aluno.curso = curso
+        aluno.email = email
+        aluno.sexo = sexo
+        aluno.forma_envio = forma_envio
+        aluno.status = AGUARDANDO_VALIDACAO
+        aluno.avaliado_por = None
+        aluno.avaliado_em = None
+        aluno.checklist_pdf_unico = None
+        aluno.drive_file_id = None
+        aluno.drive_url = None
+        aluno.pdf_gerado_em = None
+        aluno.criado_em = datetime.utcnow()
+    else:
+        aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, email=email, forma_envio=forma_envio)
+        db.session.add(aluno)
+
     db.session.flush()  # garante aluno.id antes de criar os documentos
 
     if forma_envio == "pdf_unico":
