@@ -579,37 +579,50 @@
     <!-- TELA 3 · DOCUMENTOS -->
     <section class="tela" data-tela="3">
       <h2 id="titulo-documentos">Envie seus documentos</h2>
-      <p class="subtitulo" style="text-align:left; margin-top:4px;">Escolha <strong>uma</strong> das duas formas abaixo — não precisa fazer as duas.</p>
+      <p class="subtitulo" style="text-align:left; margin-top:4px;">Escolha como prefere enviar:</p>
 
-      <h3 style="margin:22px 0 4px; color:var(--azul-escuro);">Documentos separados</h3>
-      <p class="subtitulo" style="text-align:left; margin-top:0;" id="subtitulo-documentos">Toque em cada item para tirar uma foto ou escolher da galeria.</p>
-
-      <div id="lista-documentos"></div>
-
-      <div class="botoes">
-        <button type="button" class="btn btn-primario" id="btn-enviar">Enviar documentos separados</button>
+      <div class="pill-group" style="margin-top:10px;">
+        <label class="pill">
+          <input type="radio" name="modo_envio" value="separados" id="modo-separados" checked onchange="selecionarModoEnvio('separados')">
+          <span>Documentos separados</span>
+        </label>
+        <label class="pill">
+          <input type="radio" name="modo_envio" value="pdf_unico" id="modo-pdf-unico" onchange="selecionarModoEnvio('pdf_unico')">
+          <span>Um único PDF</span>
+        </label>
       </div>
 
-      <div class="divisor-ou"><span>ou</span></div>
+      <div id="secao-documentos-separados">
+        <h3 style="margin:22px 0 4px; color:var(--azul-escuro);">Documentos separados</h3>
+        <p class="subtitulo" style="text-align:left; margin-top:0;" id="subtitulo-documentos">Toque em cada item para tirar uma foto ou escolher da galeria.</p>
 
-      <h3 style="margin:0 0 4px; color:var(--azul-escuro);">Um único PDF com tudo</h3>
-      <p class="subtitulo" style="text-align:left; margin-top:0;">Junte todos os documentos num só arquivo PDF e envie aqui.</p>
+        <div id="lista-documentos"></div>
 
-      <div class="doc-item" id="bloco-pdf-completo">
-        <div class="doc-icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
-        <div class="doc-texto">
-          <div class="doc-label">PDF com toda a documentação</div>
-          <small>Nenhum arquivo selecionado</small>
+        <div class="botoes">
+          <button type="button" class="btn btn-primario" id="btn-enviar">Enviar documentos separados</button>
         </div>
-        <button type="button" class="doc-botao" onclick="document.getElementById('input-pdf-completo').click()">Anexar</button>
-        <input type="file" accept="application/pdf" name="pdf_completo" id="input-pdf-completo">
       </div>
 
-      <label style="margin-top:16px;">Esse PDF contém:</label>
-      <div id="checklist-pdf-unico"></div>
+      <div id="secao-pdf-unico" style="display:none;">
+        <h3 style="margin:22px 0 4px; color:var(--azul-escuro);">Um único PDF com tudo</h3>
+        <p class="subtitulo" style="text-align:left; margin-top:0;">Junte todos os documentos num só arquivo PDF e envie aqui.</p>
 
-      <div class="botoes">
-        <button type="button" class="btn btn-primario" id="btn-enviar-pdf-unico">Enviar PDF único</button>
+        <div class="doc-item" id="bloco-pdf-completo">
+          <div class="doc-icone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+          <div class="doc-texto">
+            <div class="doc-label">PDF com toda a documentação</div>
+            <small>Nenhum arquivo selecionado</small>
+          </div>
+          <button type="button" class="doc-botao" onclick="document.getElementById('input-pdf-completo').click()">Anexar</button>
+          <input type="file" accept="application/pdf" name="pdf_completo" id="input-pdf-completo">
+        </div>
+
+        <label style="margin-top:16px;">Esse PDF contém:</label>
+        <div id="checklist-pdf-unico"></div>
+
+        <div class="botoes">
+          <button type="button" class="btn btn-primario" id="btn-enviar-pdf-unico">Enviar PDF único</button>
+        </div>
       </div>
 
       <div class="botoes">
@@ -664,6 +677,14 @@ const MENSAGEM_WHATSAPP = "Olá! Acabei de enviar minha documentação e tenho u
 // ============================================================
 let telaAtual = 0;
 const TOTAL_TELAS = 5;
+
+function selecionarModoEnvio(modo) {
+  const secaoSeparados = document.getElementById("secao-documentos-separados");
+  const secaoPdfUnico = document.getElementById("secao-pdf-unico");
+  const ehPdfUnico = modo === "pdf_unico";
+  secaoSeparados.style.display = ehPdfUnico ? "none" : "";
+  secaoPdfUnico.style.display = ehPdfUnico ? "" : "none";
+}
 
 function irPara(indice) {
   document.querySelectorAll(".tela").forEach((el) => {
