@@ -3,8 +3,8 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from models import APROVADO, AGUARDANDO_VALIDACAO, db, Aluno, DocumentoEnviado
-from services.documentos_config import documentos_aplicaveis
+from models import APROVADO, AGUARDANDO_VALIDACAO, REPROVADO, db, Aluno, DocumentoEnviado
+from services.documentos_config import documentos_aplicaveis, label_por_id
 from services.drive_client import DriveClient
 from services.sheets_client import SheetsClient
 from services.siga_client import AlunoNaoEncontrado, SigaAPIError, SigaClient
@@ -25,6 +25,9 @@ def buscar_cpf():
 
     - "aguardando_validacao": já tem envio dessa pessoa esperando revisão
     - "aprovado": documentação dessa pessoa já foi conferida e aprovada
+    - "pendencia": a secretaria encontrou problema em algum(ns) documento(s)
+      específico(s) -- devolve só esses itens (id + motivo) pra pessoa
+      reenviar apenas o que falta, sem repetir o que já estava ok
     - "novo": ainda não tem envio -- devolve nome/curso/email/telefone
       buscados no SIGA pra pessoa conferir na tela antes de continuar
     """
@@ -39,8 +42,31 @@ def buscar_cpf():
     if aluno_existente and aluno_existente.status == AGUARDANDO_VALIDACAO:
         return jsonify({"status": "aguardando_validacao"})
 
-    # CPF novo (ou reprovado, liberado pra reenviar): busca os dados
-    # cadastrais no SIGA pra pessoa conferir antes de prosseguir.
+    if aluno_existente and aluno_existente.status == REPROVADO:
+        pendentes = (
+            DocumentoEnviado.query.filter_by(aluno_id=aluno_existente.id, status="ilegivel")
+            .order_by(DocumentoEnviado.id.asc())
+            .all()
+        )
+        pendencias = [
+            {
+                "tipo_documento": doc.tipo_documento,
+                "label": label_por_id(doc.tipo_documento),
+                "motivo": doc.observacao or "",
+            }
+            for doc in pendentes
+        ]
+        return jsonify(
+            {
+                "status": "pendencia",
+                "aluno_id": aluno_existente.id,
+                "nome": aluno_existente.nome,
+                "pendencias": pendencias,
+            }
+        )
+
+    # CPF realmente novo: busca os dados cadastrais no SIGA pra pessoa
+    # conferir antes de prosseguir.
     try:
         siga = SigaClient(
             current_app.config["SIGA_BASE_URL"], current_app.config["SIGA_API_KEY"]
@@ -53,6 +79,52 @@ def buscar_cpf():
         return jsonify({"erro": "Não foi possível consultar o SIGA agora. Tente novamente em instantes."}), 502
 
     return jsonify({"status": "novo", **dados})
+
+
+@upload_bp.route("/reenviar-pendencias", methods=["POST"])
+def reenviar_pendencias():
+    """
+    Recebe só os arquivos dos documentos que o revisor marcou como
+    ilegíveis/pendentes (ver routes/painel.py: reprovar()) -- os demais
+    documentos, já enviados e ok, não são tocados. Ao final, o aluno
+    volta pra fila de revisão (AGUARDANDO_VALIDACAO).
+    """
+    aluno_id = request.form.get("aluno_id", "").strip()
+    if not aluno_id.isdigit():
+        return jsonify({"erro": "Requisição inválida."}), 400
+
+    aluno = Aluno.query.get(int(aluno_id))
+    if aluno is None or aluno.status != REPROVADO:
+        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+
+    pendentes = DocumentoEnviado.query.filter_by(aluno_id=aluno.id, status="ilegivel").all()
+    if not pendentes:
+        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+
+    faltando = [
+        label_por_id(doc.tipo_documento)
+        for doc in pendentes
+        if doc.tipo_documento not in request.files
+    ]
+    if faltando:
+        return jsonify({"erro": f"Documentos faltando: {', '.join(faltando)}"}), 400
+
+    for doc in pendentes:
+        arquivo = request.files[doc.tipo_documento]
+        doc.conteudo = arquivo.read()
+        doc.nome_arquivo = arquivo.filename or doc.nome_arquivo
+        doc.status = "pendente"
+        doc.observacao = None
+
+    # Volta pra fila de revisão -- os documentos que já estavam ok
+    # continuam como estavam, só os reenviados aqui foram tocados.
+    aluno.status = AGUARDANDO_VALIDACAO
+    aluno.avaliado_por = None
+    aluno.avaliado_em = None
+
+    db.session.commit()
+
+    return jsonify({"status": "ok"})
 
 
 @upload_bp.route("/enviar", methods=["POST"])
