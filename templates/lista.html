@@ -28,6 +28,10 @@
   }
   .item .nome { font-weight: 700; font-size: 0.98rem; }
   .item .detalhe { color: var(--tinta-suave); font-size: 0.85rem; margin-top: 2px; }
+  .badge-pendencia {
+    display: inline-block; margin-top: 4px; padding: 2px 9px; border-radius: 999px;
+    background: #FDECEA; color: #C5221F; font-size: 0.72rem; font-weight: 700;
+  }
   .item .seta { color: var(--azul); font-size: 1.2rem; }
   .btn-excluir {
     background: none; border: none; color: var(--vermelho, #C5221F); font-size: 0.8rem;
@@ -52,6 +56,9 @@
         <div>
           <div class="nome">{{ aluno.nome }}</div>
           <div class="detalhe">{{ aluno.curso }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</div>
+          {% if aluno.status == REPROVADO %}
+          <span class="badge-pendencia">Aguardando pendência</span>
+          {% endif %}
         </div>
         <span class="seta">→</span>
       </a>
