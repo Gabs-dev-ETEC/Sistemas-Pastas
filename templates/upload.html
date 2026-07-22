@@ -525,6 +525,23 @@
       </div>
     </section>
 
+    <!-- TELA · PENDÊNCIA (só aparece se algum documento foi marcado pra reenvio) -->
+    <section class="tela" data-tela="pendencia">
+      <h2>Pendência na sua documentação</h2>
+      <p class="subtitulo" style="text-align:left; margin-top:4px;">
+        A secretaria conferiu o que você enviou e encontrou um problema em alguns itens.
+        Reenvie só o que está listado abaixo -- o restante já está ok.
+      </p>
+
+      <input type="hidden" id="pendencia-aluno-id">
+      <div id="lista-pendencias"></div>
+
+      <div class="botoes">
+        <button type="button" class="btn btn-primario" id="btn-reenviar-pendencias">Enviar pendências</button>
+      </div>
+      <div class="status" id="status-pendencias"></div>
+    </section>
+
     <!-- TELA 2 · DADOS DA API + SEXO E RG -->
     <section class="tela" data-tela="2">
       <h2>Confirme seus dados</h2>
@@ -699,6 +716,14 @@ function irPara(indice) {
   }
 }
 
+// A tela de pendência fica fora da trilha numérica (0-4): ela só aparece
+// quando o aluno volta com um CPF que tem itens marcados pra reenvio.
+function mostrarTelaPendencia() {
+  document.querySelectorAll(".tela").forEach((el) => el.classList.remove("ativa"));
+  document.querySelector('[data-tela="pendencia"]').classList.add("ativa");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function validarEAvancar() {
   const camposDaTela2 = document.querySelectorAll('[data-tela="2"] input, [data-tela="2"] select');
   for (const campo of camposDaTela2) {
@@ -832,6 +857,14 @@ btnBuscarCPF.addEventListener("click", async () => {
       return;
     }
 
+    if (resultado.status === "pendencia") {
+      mostrarStatusBusca("", "#4C6478");
+      document.getElementById("pendencia-aluno-id").value = resultado.aluno_id;
+      renderizarPendencias(resultado.pendencias || []);
+      mostrarTelaPendencia();
+      return;
+    }
+
     // status === "novo": preenche os dados vindos do SIGA e avança pra tela de confirmação
     document.getElementById("nome").value = resultado.nome || "";
     document.getElementById("curso-exibicao").value = resultado.curso || "";
@@ -906,6 +939,95 @@ function renderizarDocumentos() {
     });
   });
 }
+
+// ============================================================
+// Tela de pendência -- só os documentos que o revisor marcou
+// ============================================================
+const listaPendenciasDiv = document.getElementById("lista-pendencias");
+
+function renderizarPendencias(pendencias) {
+  listaPendenciasDiv.innerHTML = "";
+
+  pendencias.forEach((doc) => {
+    const ehPdf = doc.tipo_documento === "pdf_completo";
+    const bloco = document.createElement("div");
+    bloco.className = "doc-item";
+    bloco.id = `bloco-pendencia-${doc.tipo_documento}`;
+    bloco.innerHTML = `
+      <div class="doc-icone">${ICONE_UPLOAD}</div>
+      <div class="doc-texto">
+        <div class="doc-label">${doc.label}</div>
+        <small>${doc.motivo ? "Motivo: " + doc.motivo : "Nenhum arquivo selecionado"}</small>
+      </div>
+      <button type="button" class="doc-botao" onclick="document.getElementById('input-pendencia-${doc.tipo_documento}').click()">Anexar</button>
+      <input type="file" accept="${ehPdf ? "application/pdf" : "image/*"}" ${ehPdf ? "" : 'capture="environment"'} data-tipo="${doc.tipo_documento}" id="input-pendencia-${doc.tipo_documento}" required>
+    `;
+    listaPendenciasDiv.appendChild(bloco);
+
+    const input = bloco.querySelector(`#input-pendencia-${doc.tipo_documento}`);
+    input.addEventListener("change", () => {
+      if (input.files.length > 0) {
+        bloco.classList.add("enviado");
+        bloco.querySelector(".doc-icone").innerHTML = ICONE_OK;
+        bloco.querySelector("small").textContent = input.files[0].name;
+        bloco.querySelector(".doc-botao").textContent = "Trocar";
+      }
+    });
+  });
+}
+
+document.getElementById("btn-reenviar-pendencias").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-reenviar-pendencias");
+  const statusDiv = document.getElementById("status-pendencias");
+
+  const inputsArquivo = Array.from(document.querySelectorAll('#lista-pendencias input[type="file"]'));
+  const faltando = inputsArquivo.filter((i) => i.files.length === 0);
+  if (faltando.length > 0) {
+    statusDiv.style.color = "#c5221f";
+    statusDiv.textContent = "Anexe todos os documentos pendentes antes de enviar.";
+    faltando[0].closest(".doc-item").scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+
+  btn.disabled = true;
+  statusDiv.style.color = "#4C6478";
+  statusDiv.textContent = "";
+
+  try {
+    const formData = new FormData();
+    formData.append("aluno_id", document.getElementById("pendencia-aluno-id").value);
+
+    for (let i = 0; i < inputsArquivo.length; i++) {
+      const input = inputsArquivo[i];
+      const tipo = input.dataset.tipo;
+      let arquivo = input.files[0];
+      if (tipo !== "pdf_completo") {
+        btn.textContent = `Preparando fotos... (${i + 1}/${inputsArquivo.length})`;
+        arquivo = await comprimirImagem(arquivo);
+      }
+      formData.append(tipo, arquivo);
+    }
+
+    btn.textContent = "Enviando...";
+    const resposta = await fetch("/reenviar-pendencias", { method: "POST", body: formData });
+    const resultado = await resposta.json();
+
+    if (resposta.ok) {
+      document.getElementById("link-whatsapp").href =
+        `https://wa.me/${NUMERO_WHATSAPP}?text=${encodeURIComponent(MENSAGEM_WHATSAPP)}`;
+      irPara(4);
+    } else {
+      statusDiv.style.color = "#c5221f";
+      statusDiv.textContent = resultado.erro || "Ocorreu um erro ao enviar.";
+    }
+  } catch (err) {
+    statusDiv.style.color = "#c5221f";
+    statusDiv.textContent = "Erro de conexão. Tente novamente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Enviar pendências";
+  }
+});
 
 function renderizarChecklistPdfUnico() {
   const respostas = respostasAtuais();
