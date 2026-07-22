@@ -63,6 +63,11 @@
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .status-msg { max-width: 640px; margin: 10px auto 0; text-align: center; font-size: 0.88rem; font-weight: 600; }
+
+  .aviso-pendencia {
+    max-width: 640px; margin: 0 auto 20px; padding: 14px 16px; border-radius: 12px;
+    background: var(--vermelho-fundo); color: var(--vermelho); font-size: 0.88rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -72,6 +77,12 @@
     <h1>{{ aluno.nome }}</h1>
     <p class="subtitulo">{{ aluno.curso }} · CPF {{ aluno.cpf }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</p>
   </div>
+
+  {% if aguardando_reenvio %}
+  <div class="aviso-pendencia">
+    Pendência já enviada pra esse aluno -- aguardando ele reenviar os documentos marcados abaixo. A revisão libera de novo assim que ele reenviar.
+  </div>
+  {% endif %}
 
   <div class="lista-docs" id="lista-docs">
     {% for doc in documentos %}
@@ -86,11 +97,17 @@
       {% endif %}
       <div class="corpo">
         <div class="doc-label">{{ doc.label }}</div>
+        {% if aguardando_reenvio %}
+          {% if doc.status == "ilegivel" %}
+          <label class="toggle-ilegivel" style="color:var(--vermelho);">Pendente: {{ doc.observacao or "sem motivo informado" }}</label>
+          {% endif %}
+        {% else %}
         <label class="toggle-ilegivel">
           <input type="checkbox" class="check-ilegivel">
           Marcar como pendente/ilegível
         </label>
         <textarea class="campo-motivo" rows="2" placeholder="Explique o que precisa ser reenviado (ex: RG cortado, comprovante vencido)"></textarea>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
