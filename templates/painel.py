@@ -27,6 +27,12 @@
   .lista-docs { max-width: 640px; margin: 20px auto; display: flex; flex-direction: column; gap: 14px; }
   .doc-card { background: var(--branco); border-radius: var(--raio); box-shadow: var(--sombra); overflow: hidden; }
   .doc-card img { width: 100%; max-height: 340px; object-fit: contain; background: #eef4f8; display: block; }
+  .doc-pdf {
+    display: flex; align-items: center; gap: 10px; padding: 16px;
+    background: #eef4f8; color: var(--azul-escuro); font-weight: 700;
+    text-decoration: none; font-size: 0.95rem;
+  }
+  .doc-pdf svg { flex: none; width: 22px; height: 22px; }
   .doc-card .corpo { padding: 14px 16px; }
   .doc-card .doc-label { font-weight: 700; font-size: 0.95rem; }
 
@@ -70,7 +76,14 @@
   <div class="lista-docs" id="lista-docs">
     {% for doc in documentos %}
     <div class="doc-card" id="doc-{{ doc.id }}" data-doc-id="{{ doc.id }}">
+      {% if doc.eh_pdf %}
+      <a class="doc-pdf" href="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        Abrir PDF em nova aba
+      </a>
+      {% else %}
       <img src="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" alt="{{ doc.tipo_documento }}">
+      {% endif %}
       <div class="corpo">
         <div class="doc-label">{{ doc.label }}</div>
         <label class="toggle-ilegivel">
