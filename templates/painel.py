@@ -38,6 +38,34 @@
 
   .doc-card.marcado { border: 2px solid var(--vermelho); }
 
+  .doc-card.doc-card-pendencia {
+    position: relative;
+    border: 2px dashed var(--laranja);
+  }
+  .etiqueta-solicitado {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--laranja);
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4);
+    animation: pulso-etiqueta 1.8s ease-in-out infinite;
+  }
+  .etiqueta-solicitado svg { width: 12px; height: 12px; flex: none; }
+  @keyframes pulso-etiqueta {
+    0%, 100% { box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4); }
+    50% { box-shadow: 0 3px 16px rgba(231, 73, 38, 0.65); }
+  }
+
   .toggle-ilegivel {
     display: flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer;
     font-size: 0.85rem; font-weight: 600; color: var(--vermelho);
@@ -86,7 +114,13 @@
 
   <div class="lista-docs" id="lista-docs">
     {% for doc in documentos %}
-    <div class="doc-card" id="doc-{{ doc.id }}" data-doc-id="{{ doc.id }}">
+    <div class="doc-card{% if aguardando_reenvio and doc.status == 'ilegivel' %} doc-card-pendencia{% endif %}" id="doc-{{ doc.id }}" data-doc-id="{{ doc.id }}">
+      {% if aguardando_reenvio and doc.status == 'ilegivel' %}
+      <span class="etiqueta-solicitado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+        DOCUMENTO SOLICITADO
+      </span>
+      {% endif %}
       {% if doc.eh_pdf %}
       <a class="doc-pdf" href="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
