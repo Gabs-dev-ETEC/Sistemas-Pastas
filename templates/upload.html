@@ -270,6 +270,47 @@
     border-color: var(--verde);
     background: var(--verde-fundo);
   }
+
+  /* -------- Etiqueta "documento solicitado" (tela de pendência) -------- */
+  .doc-item-pendencia {
+    position: relative;
+    border: 1.5px dashed var(--laranja);
+    background: #FDF1EC;
+    padding-top: 20px;
+  }
+  .doc-item-pendencia.enviado {
+    border: 1.5px solid var(--verde);
+    background: var(--verde-fundo);
+  }
+  .etiqueta-solicitado {
+    position: absolute;
+    top: -11px;
+    left: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--laranja);
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 4px 10px 4px 8px;
+    border-radius: 999px;
+    box-shadow: 0 3px 8px rgba(231, 73, 38, 0.35);
+    animation: pulso-etiqueta 1.8s ease-in-out infinite;
+  }
+  .etiqueta-solicitado svg { width: 11px; height: 11px; flex: none; }
+  .doc-item-pendencia.enviado .etiqueta-solicitado {
+    background: var(--verde);
+    box-shadow: 0 3px 8px rgba(19, 164, 56, 0.35);
+    animation: none;
+  }
+  @keyframes pulso-etiqueta {
+    0%, 100% { box-shadow: 0 3px 8px rgba(231, 73, 38, 0.35); }
+    50% { box-shadow: 0 3px 14px rgba(231, 73, 38, 0.6); }
+  }
+  .doc-item-pendencia .doc-label { margin-top: 6px; font-size: 0.98rem; }
+
   .doc-icone {
     flex: none;
     width: 40px; height: 40px;
@@ -908,6 +949,7 @@ function respostasAtuais() {
 
 const ICONE_UPLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>`;
 const ICONE_OK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+const ICONE_ETIQUETA = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>`;
 
 function renderizarDocumentos() {
   const respostas = respostasAtuais();
@@ -951,9 +993,10 @@ function renderizarPendencias(pendencias) {
   pendencias.forEach((doc) => {
     const ehPdf = doc.tipo_documento === "pdf_completo";
     const bloco = document.createElement("div");
-    bloco.className = "doc-item";
+    bloco.className = "doc-item doc-item-pendencia";
     bloco.id = `bloco-pendencia-${doc.tipo_documento}`;
     bloco.innerHTML = `
+      <span class="etiqueta-solicitado">${ICONE_ETIQUETA} DOCUMENTO SOLICITADO</span>
       <div class="doc-icone">${ICONE_UPLOAD}</div>
       <div class="doc-texto">
         <div class="doc-label">${doc.label}</div>
@@ -969,6 +1012,7 @@ function renderizarPendencias(pendencias) {
       if (input.files.length > 0) {
         bloco.classList.add("enviado");
         bloco.querySelector(".doc-icone").innerHTML = ICONE_OK;
+        bloco.querySelector(".etiqueta-solicitado").innerHTML = `${ICONE_OK} DOCUMENTO ENVIADO`;
         bloco.querySelector("small").textContent = input.files[0].name;
         bloco.querySelector(".doc-botao").textContent = "Trocar";
       }
