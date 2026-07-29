@@ -594,6 +594,7 @@
 
         <label for="curso">Curso</label>
         <input type="text" id="curso-exibicao" readonly>
+        <select id="curso-selecao" class="hidden"></select>
         <input type="hidden" id="curso" name="curso">
 
         <label for="email-exibicao">E-mail</label>
@@ -861,6 +862,39 @@ function esconderBlocosPosBusca() {
   blocoJaAprovado.classList.add("hidden");
 }
 
+const campoCursoExibicao = document.getElementById("curso-exibicao");
+const campoCursoSelecao = document.getElementById("curso-selecao");
+const campoCursoValor = document.getElementById("curso");
+
+// Quando o aluno tem mais de um curso, mostra um select pra ele escolher
+// de qual curso está mandando a documentação; com um curso só (ou
+// nenhum, se a busca no SIGA não achou), mantém o campo de texto
+// somente leitura como antes.
+function preencherCurso(cursos) {
+  if (cursos.length > 1) {
+    campoCursoSelecao.innerHTML = "";
+    cursos.forEach((curso) => {
+      const opcao = document.createElement("option");
+      opcao.value = curso.nome;
+      opcao.textContent = curso.nome;
+      campoCursoSelecao.appendChild(opcao);
+    });
+    campoCursoExibicao.classList.add("hidden");
+    campoCursoSelecao.classList.remove("hidden");
+    campoCursoValor.value = cursos[0].nome;
+  } else {
+    const nomeCurso = cursos[0]?.nome || "";
+    campoCursoSelecao.classList.add("hidden");
+    campoCursoExibicao.classList.remove("hidden");
+    campoCursoExibicao.value = nomeCurso;
+    campoCursoValor.value = nomeCurso;
+  }
+}
+
+campoCursoSelecao.addEventListener("change", () => {
+  campoCursoValor.value = campoCursoSelecao.value;
+});
+
 btnBuscarCPF.addEventListener("click", async () => {
   const cpfDigitado = campoCPF.value.replace(/\D/g, "");
   if (cpfDigitado.length !== 11) {
@@ -908,8 +942,7 @@ btnBuscarCPF.addEventListener("click", async () => {
 
     // status === "novo": preenche os dados vindos do SIGA e avança pra tela de confirmação
     document.getElementById("nome").value = resultado.nome || "";
-    document.getElementById("curso-exibicao").value = resultado.curso || "";
-    document.getElementById("curso").value = resultado.curso || "";
+    preencherCurso(resultado.cursos || []);
     document.getElementById("email-exibicao").value = resultado.email || "";
     document.getElementById("email").value = resultado.email || "";
     document.getElementById("telefone-exibicao").value = resultado.telefone || "";
