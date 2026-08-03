@@ -58,14 +58,31 @@ def corpo_aprovacao(nome: str) -> str:
     )
 
 
-def corpo_pendencia(nome: str, pendencias: list[str]) -> str:
+def corpo_pendencia(nome: str, pendencias: list[str], forma_envio: str = "individual") -> str:
     lista = "\n".join(f"- {item}" for item in pendencias)
+
+    # Quando o aluno mandou tudo num único PDF (forma_envio ==
+    # "pdf_unico"), não existe "item separado" pra reenviar -- ele precisa
+    # editar o próprio arquivo PDF, corrigindo os itens listados, e mandar
+    # o PDF inteiro de novo.
+    if forma_envio == "pdf_unico":
+        instrucao = (
+            "Modifique o documento dentro do seu arquivo PDF, corrigindo os "
+            "itens acima, e envie o PDF completo novamente pelo link que "
+            "você usou no envio original (não precisa separar por "
+            "documento)."
+        )
+    else:
+        instrucao = (
+            "Acesse o link que você usou para enviar a documentação e reenvie "
+            "apenas os itens pendentes."
+        )
+
     return (
         f"Olá, {nome}!\n\n"
         "Analisamos sua documentação e encontramos pendências nos itens abaixo:\n\n"
         f"{lista}\n\n"
-        "Acesse o link que você usou para enviar a documentação e reenvie "
-        "apenas os itens pendentes.\n\n"
+        f"{instrucao}\n\n"
         "Qualquer dúvida, fale com a gente pelo WhatsApp.\n\n"
         "Atenciosamente,\nSecretaria Acadêmica"
     )
