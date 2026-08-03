@@ -1,263 +1,300 @@
-import json
-from datetime import datetime
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-icone.png') }}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revisar - {{ aluno.nome }}</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --azul: #00609F; --azul-escuro: #063C63; --azul-fundo: #EAF3FA;
+    --ambar: #F28B1F; --laranja: #E74926; --tinta: #10293D; --tinta-suave: #4C6478;
+    --branco: #FFFFFF; --verde: #13A438; --verde-fundo: #E8F7EC;
+    --vermelho: #E74926; --vermelho-fundo: #FDECEA; --raio: 16px;
+    --sombra: 0 6px 20px rgba(6, 60, 99, 0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; margin: 0; min-height: 100vh;
+    background: #F7FBFE; color: var(--tinta); padding: 20px 16px 100px;
+  }
+  .topo { max-width: 640px; margin: 0 auto 18px; }
+  .voltar { color: var(--azul); font-size: 0.85rem; text-decoration: none; font-weight: 600; }
+  h1 { font-family: 'Baloo 2', sans-serif; color: var(--azul-escuro); font-size: 1.4rem; margin: 10px 0 2px; }
+  .subtitulo { color: var(--tinta-suave); font-size: 0.9rem; margin: 0; }
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+  .lista-docs { max-width: 640px; margin: 20px auto; display: flex; flex-direction: column; gap: 14px; }
+  .doc-card { background: var(--branco); border-radius: var(--raio); box-shadow: var(--sombra); overflow: hidden; }
+  .doc-card img { width: 100%; max-height: 340px; object-fit: contain; background: #eef4f8; display: block; }
+  .doc-pdf {
+    display: flex; align-items: center; gap: 10px; padding: 16px;
+    background: #eef4f8; color: var(--azul-escuro); font-weight: 700;
+    text-decoration: none; font-size: 0.95rem;
+  }
+  .doc-pdf svg { flex: none; width: 22px; height: 22px; }
+  .doc-card .corpo { padding: 14px 16px; }
+  .doc-card .doc-label { font-weight: 700; font-size: 0.95rem; }
 
-from models import APROVADO, AGUARDANDO_VALIDACAO, REPROVADO, db, Aluno, DocumentoEnviado
-from services.documentos_config import documentos_aplicaveis, label_por_id
-from services.drive_client import DriveClient
-from services.sheets_client import SheetsClient
-from services.siga_client import AlunoNaoEncontrado, SigaAPIError, SigaClient
+  .doc-card.marcado { border: 2px solid var(--vermelho); }
 
-upload_bp = Blueprint("upload", __name__)
+  .doc-card.doc-card-reenviado {
+    position: relative;
+    border: 2px solid var(--vermelho);
+  }
+  .etiqueta-reenviado {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--vermelho);
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4);
+  }
+  .etiqueta-reenviado svg { width: 12px; height: 12px; flex: none; }
+  .motivo-anterior {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--vermelho-fundo);
+    color: var(--vermelho);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
 
+  .doc-card.doc-card-pendencia {
+    position: relative;
+    border: 2px dashed var(--laranja);
+  }
+  .etiqueta-solicitado {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--laranja);
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4);
+    animation: pulso-etiqueta 1.8s ease-in-out infinite;
+  }
+  .etiqueta-solicitado svg { width: 12px; height: 12px; flex: none; }
+  @keyframes pulso-etiqueta {
+    0%, 100% { box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4); }
+    50% { box-shadow: 0 3px 16px rgba(231, 73, 38, 0.65); }
+  }
 
-@upload_bp.route("/")
-def formulario():
-    return render_template("upload.html")
+  .toggle-ilegivel {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 600; color: var(--vermelho);
+  }
+  .campo-motivo {
+    display: none; margin-top: 10px; width: 100%; padding: 10px 12px;
+    border: 1.5px solid #F3C6BE; border-radius: 10px; font-family: inherit; font-size: 0.88rem;
+    background: var(--vermelho-fundo);
+  }
+  .doc-card.marcado .campo-motivo { display: block; }
 
+  .rodape-acoes {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--branco);
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.08); padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+  .rodape-acoes .conteudo { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
+  button {
+    flex: 1; border: none; border-radius: 13px; padding: 14px; font-size: 0.95rem;
+    font-weight: 700; font-family: inherit; cursor: pointer;
+  }
+  .btn-aprovar { background: linear-gradient(135deg, var(--verde), #0e8a2c); color: white; }
+  .btn-reprovar { background: var(--vermelho-fundo); color: var(--vermelho); }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-@upload_bp.route("/buscar-cpf", methods=["POST"])
-def buscar_cpf():
-    """
-    Recebe o CPF informado pelo aluno e devolve o que a tela precisa
-    mostrar antes de liberar o envio de documentos:
+  .status-msg { max-width: 640px; margin: 10px auto 0; text-align: center; font-size: 0.88rem; font-weight: 600; }
 
-    - "aguardando_validacao": já tem envio dessa pessoa esperando revisão
-    - "aprovado": documentação dessa pessoa já foi conferida e aprovada
-    - "pendencia": a secretaria encontrou problema em algum(ns) documento(s)
-      específico(s) -- devolve só esses itens (id + motivo) pra pessoa
-      reenviar apenas o que falta, sem repetir o que já estava ok
-    - "novo": ainda não tem envio -- devolve nome/curso/email/telefone
-      buscados no SIGA pra pessoa conferir na tela antes de continuar
-    """
-    cpf = (request.get_json(silent=True) or {}).get("cpf", "").strip()
-    cpf_limpo = "".join(c for c in cpf if c.isdigit())
-    if len(cpf_limpo) != 11:
-        return jsonify({"erro": "CPF inválido."}), 400
+  .aviso-pendencia {
+    max-width: 640px; margin: 0 auto 20px; padding: 14px 16px; border-radius: 12px;
+    background: var(--vermelho-fundo); color: var(--vermelho); font-size: 0.88rem; font-weight: 600;
+  }
+</style>
+</head>
+<body>
 
-    aluno_existente = Aluno.query.filter_by(cpf=cpf_limpo).first()
-    if aluno_existente and aluno_existente.status == APROVADO:
-        return jsonify({"status": "aprovado"})
-    if aluno_existente and aluno_existente.status == AGUARDANDO_VALIDACAO:
-        return jsonify({"status": "aguardando_validacao"})
+  <div class="topo">
+    <a class="voltar" href="{{ url_for('painel.lista') }}">← Voltar</a>
+    <h1>{{ aluno.nome }}</h1>
+    <p class="subtitulo">{{ aluno.curso }} · CPF {{ aluno.cpf }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</p>
+  </div>
 
-    if aluno_existente and aluno_existente.status == REPROVADO:
-        pendentes = (
-            DocumentoEnviado.query.filter_by(aluno_id=aluno_existente.id, status="ilegivel")
-            .order_by(DocumentoEnviado.id.asc())
-            .all()
-        )
-        pendencias = [
-            {
-                "tipo_documento": doc.tipo_documento,
-                "label": label_por_id(doc.tipo_documento),
-                "motivo": doc.observacao or "",
-            }
-            for doc in pendentes
-        ]
-        return jsonify(
-            {
-                "status": "pendencia",
-                "aluno_id": aluno_existente.id,
-                "nome": aluno_existente.nome,
-                "pendencias": pendencias,
-            }
-        )
+  {% if aguardando_reenvio %}
+  <div class="aviso-pendencia">
+    Pendência já enviada pra esse aluno -- aguardando ele reenviar os documentos marcados abaixo. A revisão libera de novo assim que ele reenviar.
+  </div>
+  {% endif %}
 
-    # CPF realmente novo: busca os dados cadastrais no SIGA pra pessoa
-    # conferir antes de prosseguir.
-    try:
-        siga = SigaClient(
-            current_app.config["SIGA_BASE_URL"], current_app.config["SIGA_API_KEY"]
-        )
-        dados = siga.buscar_aluno_por_cpf(cpf_limpo)
-    except AlunoNaoEncontrado:
-        return jsonify({"erro": "CPF não encontrado no SIGA. Confira o número digitado."}), 404
-    except SigaAPIError:
-        current_app.logger.exception("Falha ao consultar o SIGA para o CPF informado.")
-        return jsonify({"erro": "Não foi possível consultar o SIGA agora. Tente novamente em instantes."}), 502
+  <div class="lista-docs" id="lista-docs">
+    {% for doc in documentos %}
+    <div class="doc-card{% if aguardando_reenvio and doc.status == 'ilegivel' %} doc-card-pendencia{% endif %}{% if doc.status == 'reenviado' %} doc-card-reenviado{% endif %}" id="doc-{{ doc.id }}" data-doc-id="{{ doc.id }}">
+      {% if aguardando_reenvio and doc.status == 'ilegivel' %}
+      <span class="etiqueta-solicitado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+        DOCUMENTO SOLICITADO
+      </span>
+      {% endif %}
+      {% if doc.status == 'reenviado' %}
+      <span class="etiqueta-reenviado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+        REENVIADO -- CONFERIR
+      </span>
+      {% endif %}
+      {% if doc.eh_pdf %}
+      <a class="doc-pdf" href="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        Abrir PDF em nova aba
+      </a>
+      {% else %}
+      <img src="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" alt="{{ doc.tipo_documento }}">
+      {% endif %}
+      <div class="corpo">
+        <div class="doc-label">{{ doc.label }}</div>
+        {% if doc.status == 'reenviado' and doc.observacao %}
+        <div class="motivo-anterior">Pendência anterior: {{ doc.observacao }}</div>
+        {% endif %}
+        {% if aguardando_reenvio %}
+          {% if doc.status == "ilegivel" %}
+          <label class="toggle-ilegivel" style="color:var(--vermelho);">Pendente: {{ doc.observacao or "sem motivo informado" }}</label>
+          {% endif %}
+        {% else %}
+        <label class="toggle-ilegivel">
+          <input type="checkbox" class="check-ilegivel">
+          Marcar como pendente/ilegível
+        </label>
+        <textarea class="campo-motivo" rows="2" placeholder="Explique o que precisa ser reenviado (ex: RG cortado, comprovante vencido)"></textarea>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 
-    return jsonify({"status": "novo", **dados})
+  <div class="rodape-acoes">
+    <div class="conteudo">
+      <button type="button" class="btn-reprovar" id="btn-reprovar">Enviar pendências</button>
+      <button type="button" class="btn-aprovar" id="btn-aprovar">Aprovar documentação</button>
+    </div>
+    <div class="status-msg" id="status-msg"></div>
+  </div>
 
+<script>
+const alunoId = {{ aluno.id }};
 
-@upload_bp.route("/reenviar-pendencias", methods=["POST"])
-def reenviar_pendencias():
-    """
-    Recebe só os arquivos dos documentos que o revisor marcou como
-    ilegíveis/pendentes (ver routes/painel.py: reprovar()) -- os demais
-    documentos, já enviados e ok, não são tocados. Ao final, o aluno
-    volta pra fila de revisão (AGUARDANDO_VALIDACAO).
-    """
-    aluno_id = request.form.get("aluno_id", "").strip()
-    if not aluno_id.isdigit():
-        return jsonify({"erro": "Requisição inválida."}), 400
+document.querySelectorAll('.check-ilegivel').forEach((chk) => {
+  chk.addEventListener('change', () => {
+    chk.closest('.doc-card').classList.toggle('marcado', chk.checked);
+  });
+});
 
-    aluno = Aluno.query.get(int(aluno_id))
-    if aluno is None or aluno.status != REPROVADO:
-        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+const statusMsg = document.getElementById('status-msg');
+const btnAprovar = document.getElementById('btn-aprovar');
+const btnReprovar = document.getElementById('btn-reprovar');
 
-    pendentes = DocumentoEnviado.query.filter_by(aluno_id=aluno.id, status="ilegivel").all()
-    if not pendentes:
-        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+btnAprovar.addEventListener('click', async () => {
+  const marcados = document.querySelectorAll('.doc-card.marcado');
+  if (marcados.length > 0) {
+    statusMsg.style.color = '#c5221f';
+    statusMsg.textContent = 'Você marcou documentos como pendentes -- use "Enviar pendências" em vez de aprovar.';
+    return;
+  }
+  if (!confirm('Confirma que a documentação está completa e legível? Isso vai gerar o PDF final e subir pro Drive.')) return;
 
-    faltando = [
-        label_por_id(doc.tipo_documento)
-        for doc in pendentes
-        if doc.tipo_documento not in request.files
-    ]
-    if faltando:
-        return jsonify({"erro": f"Documentos faltando: {', '.join(faltando)}"}), 400
+  btnAprovar.disabled = true;
+  btnReprovar.disabled = true;
+  statusMsg.style.color = '#4C6478';
+  statusMsg.textContent = 'Gerando PDF e enviando pro Drive...';
 
-    for doc in pendentes:
-        arquivo = request.files[doc.tipo_documento]
-        doc.conteudo = arquivo.read()
-        doc.nome_arquivo = arquivo.filename or doc.nome_arquivo
-        # "reenviado" (em vez de voltar direto pra "pendente") -- assim o
-        # painel (routes/painel.py: revisar()) consegue destacar com borda
-        # vermelha só os documentos que foram reenviados após pendência,
-        # diferenciando de um documento comum que nunca foi rejeitado.
-        # `observacao` é mantida de propósito (não é zerada aqui) pra o
-        # revisor ver qual foi o motivo original ao conferir o reenvio.
-        doc.status = "reenviado"
-
-    # Volta pra fila de revisão -- os documentos que já estavam ok
-    # continuam como estavam, só os reenviados aqui foram tocados.
-    aluno.status = AGUARDANDO_VALIDACAO
-    aluno.avaliado_por = None
-    aluno.avaliado_em = None
-
-    db.session.commit()
-
-    return jsonify({"status": "ok"})
-
-
-@upload_bp.route("/enviar", methods=["POST"])
-def enviar():
-    nome = request.form.get("nome", "").strip()
-    curso = request.form.get("curso", "").strip()
-    cpf_bruto = request.form.get("cpf", "").strip()
-    cpf = "".join(c for c in cpf_bruto if c.isdigit())
-    email = request.form.get("email", "").strip()
-    telefone = request.form.get("telefone", "").strip()
-    sexo = request.form.get("sexo", "").strip()
-    rg_sem_cpf = request.form.get("rg_sem_cpf") == "on"
-    forma_envio = request.form.get("forma_envio", "individual").strip()
-    if forma_envio not in ("individual", "pdf_unico"):
-        forma_envio = "individual"
-
-    if not nome or not curso or not sexo or not cpf:
-        return jsonify({"erro": "Nome, curso, CPF e sexo são obrigatórios."}), 400
-
-    respostas = {
-        "sexo": sexo,
-        "rg_tem_cpf": not rg_sem_cpf,
+  try {
+    const resp = await fetch(`/painel/aluno/${alunoId}/aprovar`, { method: 'POST' });
+    const resultado = await resp.json();
+    if (resp.ok) {
+      statusMsg.style.color = '#137333';
+      statusMsg.textContent = 'Aprovado! Redirecionando...';
+      setTimeout(() => { window.location.href = "{{ url_for('painel.lista') }}"; }, 1200);
+    } else {
+      statusMsg.style.color = '#c5221f';
+      statusMsg.textContent = resultado.erro || 'Erro ao aprovar.';
+      btnAprovar.disabled = false;
+      btnReprovar.disabled = false;
     }
-    obrigatorios = documentos_aplicaveis(respostas)
+  } catch (e) {
+    statusMsg.style.color = '#c5221f';
+    statusMsg.textContent = 'Erro de conexão.';
+    btnAprovar.disabled = false;
+    btnReprovar.disabled = false;
+  }
+});
 
-    # Se já existe um registro desse CPF (ex: envio anterior foi reprovado
-    # e a pessoa está reenviando), reaproveita a linha em vez de tentar
-    # inserir outra -- cpf é unique, então um INSERT novo aqui sempre
-    # daria IntegrityError. Também limpa documentos e avaliação anteriores.
-    aluno = Aluno.query.filter_by(cpf=cpf).first()
-    if aluno is not None:
-        DocumentoEnviado.query.filter_by(aluno_id=aluno.id).delete()
-        aluno.nome = nome
-        aluno.curso = curso
-        aluno.email = email
-        aluno.sexo = sexo
-        aluno.forma_envio = forma_envio
-        aluno.status = AGUARDANDO_VALIDACAO
-        aluno.avaliado_por = None
-        aluno.avaliado_em = None
-        aluno.checklist_pdf_unico = None
-        aluno.drive_file_id = None
-        aluno.drive_url = None
-        aluno.pdf_gerado_em = None
-        aluno.criado_em = datetime.utcnow()
-    else:
-        aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, email=email, forma_envio=forma_envio)
-        db.session.add(aluno)
+btnReprovar.addEventListener('click', async () => {
+  const marcados = Array.from(document.querySelectorAll('.doc-card.marcado'));
+  if (marcados.length === 0) {
+    statusMsg.style.color = '#c5221f';
+    statusMsg.textContent = 'Marque ao menos um documento como pendente/ilegível antes de enviar.';
+    return;
+  }
 
-    db.session.flush()  # garante aluno.id antes de criar os documentos
+  const pendencias = [];
+  for (const card of marcados) {
+    const motivo = card.querySelector('.campo-motivo').value.trim();
+    if (!motivo) {
+      statusMsg.style.color = '#c5221f';
+      statusMsg.textContent = 'Preencha o motivo de cada documento marcado.';
+      return;
+    }
+    pendencias.push({ documento_id: Number(card.dataset.docId), motivo });
+  }
 
-    if forma_envio == "pdf_unico":
-        # Aluno optou por mandar um único PDF com toda a documentação em
-        # vez de um arquivo por documento. Nesse caso não dá pra conferir
-        # arquivo por arquivo -- em vez disso exigimos que o aluno confirme,
-        # num checklist, quais documentos estão dentro desse PDF, e essa
-        # lista fica salva pra secretaria conferir contra o PDF enviado.
-        arquivo_pdf = request.files.get("pdf_completo")
-        if arquivo_pdf is None or not arquivo_pdf.filename:
-            return jsonify({"erro": "Envie o arquivo PDF com a documentação completa."}), 400
+  if (!confirm(`Confirma o envio de ${pendencias.length} pendência(s) para o aluno reenviar?`)) return;
 
-        try:
-            checklist_ids = json.loads(request.form.get("checklist", "[]"))
-        except ValueError:
-            checklist_ids = []
-        if not isinstance(checklist_ids, list):
-            checklist_ids = []
+  btnAprovar.disabled = true;
+  btnReprovar.disabled = true;
+  statusMsg.style.color = '#4C6478';
+  statusMsg.textContent = 'Enviando...';
 
-        faltando = [doc.label for doc in obrigatorios if doc.id not in checklist_ids]
-        if faltando:
-            return jsonify(
-                {"erro": f"Confirme no checklist que o PDF contém: {', '.join(faltando)}"}
-            ), 400
+  try {
+    const resp = await fetch(`/painel/aluno/${alunoId}/reprovar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendencias }),
+    });
+    const resultado = await resp.json();
+    if (resp.ok) {
+      statusMsg.style.color = '#137333';
+      statusMsg.textContent = 'Pendências registradas! Redirecionando...';
+      setTimeout(() => { window.location.href = "{{ url_for('painel.lista') }}"; }, 1200);
+    } else {
+      statusMsg.style.color = '#c5221f';
+      statusMsg.textContent = resultado.erro || 'Erro ao registrar pendências.';
+      btnAprovar.disabled = false;
+      btnReprovar.disabled = false;
+    }
+  } catch (e) {
+    statusMsg.style.color = '#c5221f';
+    statusMsg.textContent = 'Erro de conexão.';
+    btnAprovar.disabled = false;
+    btnReprovar.disabled = false;
+  }
+});
+</script>
 
-        conteudo_pdf = arquivo_pdf.read()
-        registro = DocumentoEnviado(
-            aluno_id=aluno.id,
-            tipo_documento="pdf_completo",
-            nome_arquivo=arquivo_pdf.filename or "documentacao-completa.pdf",
-            conteudo=conteudo_pdf,
-            status="pendente",
-        )
-        db.session.add(registro)
-        aluno.checklist_pdf_unico = json.dumps(checklist_ids)
-    else:
-        # Valida que todos os arquivos exigidos por essas respostas
-        # realmente vieram na requisição -- o front já faz isso, mas o
-        # backend não confia cegamente no front.
-        faltando = [doc.label for doc in obrigatorios if doc.id not in request.files]
-        if faltando:
-            return jsonify({"erro": f"Documentos faltando: {', '.join(faltando)}"}), 400
-
-        # Guarda a foto (ou PDF, se o aluno usou "Anexar arquivo") de cada
-        # documento aguardando revisão. O PDF final só é gerado (documentos
-        # + certificado de capacitação) e sobe pro Drive quando um revisor
-        # aprova no painel -- ver routes/painel.py: aprovar().
-        for doc in obrigatorios:
-            arquivo = request.files[doc.id]
-            registro = DocumentoEnviado(
-                aluno_id=aluno.id,
-                tipo_documento=doc.id,
-                nome_arquivo=arquivo.filename or f"{doc.id}.jpg",
-                conteudo=arquivo.read(),
-                status="pendente",
-            )
-            db.session.add(registro)
-
-    db.session.commit()
-
-    # Registra a linha na planilha de controle (Nome | CPF | Curso |
-    # Data de Envio | Dias Úteis desde Envio | Status) assim que o aluno
-    # envia -- a planilha serve pra secretaria acompanhar prazo, então não
-    # espera a revisão. Não deve travar o envio se der problema na
-    # planilha -- os documentos já foram salvos no banco nesse ponto.
-    try:
-        drive = DriveClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
-        sheets = SheetsClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
-        planilha_id = sheets.obter_ou_criar_planilha(
-            current_app.config["NOME_PLANILHA_CONTROLE"],
-            current_app.config["DRIVE_PASTA_RAIZ_ID"],
-            drive,
-        )
-        sheets.adicionar_linha(
-            planilha_id, nome, cpf, curso, aluno.criado_em.strftime("%d/%m/%Y")
-        )
-    except Exception:
-        current_app.logger.exception(
-            "Falha ao registrar envio na planilha de controle (aluno_id=%s)", aluno.id
-        )
-
-    return jsonify({"status": "ok", "aluno_id": aluno.id})
+</body>
+</html>
