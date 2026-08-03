@@ -113,8 +113,13 @@ def reenviar_pendencias():
         arquivo = request.files[doc.tipo_documento]
         doc.conteudo = arquivo.read()
         doc.nome_arquivo = arquivo.filename or doc.nome_arquivo
-        doc.status = "pendente"
-        doc.observacao = None
+        # "reenviado" (em vez de voltar direto pra "pendente") -- assim o
+        # painel (routes/painel.py: revisar()) consegue destacar com borda
+        # vermelha só os documentos que foram reenviados após pendência,
+        # diferenciando de um documento comum que nunca foi rejeitado.
+        # `observacao` é mantida de propósito (não é zerada aqui) pra o
+        # revisor ver qual foi o motivo original ao conferir o reenvio.
+        doc.status = "reenviado"
 
     # Volta pra fila de revisão -- os documentos que já estavam ok
     # continuam como estavam, só os reenviados aqui foram tocados.
