@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -46,6 +45,12 @@ def documentos_aplicaveis(respostas: dict) -> list[DocumentoRequerido]:
 
 
 def label_por_id(documento_id: str) -> str:
+    # "pdf_completo" não é um documento da lista acima -- é o identificador
+    # especial usado quando o aluno manda tudo num único PDF (forma_envio
+    # == "pdf_unico"). Tratado à parte pra não aparecer cru ("pdf_completo")
+    # pro revisor ou pro aluno.
+    if documento_id == "pdf_completo":
+        return "Documentação completa (PDF)"
     for doc in DOCUMENTOS:
         if doc.id == documento_id:
             return doc.label
