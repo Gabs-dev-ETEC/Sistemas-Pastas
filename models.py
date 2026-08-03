@@ -58,7 +58,11 @@ class DocumentoEnviado(db.Model):
     # depois que o PDF final é gerado (ver comentário em routes/painel.py)
     conteudo = db.Column(db.LargeBinary, nullable=True)
 
-    status = db.Column(db.String(20), default="pendente")  # pendente / aprovado / ilegivel
+    status = db.Column(db.String(20), default="pendente")  # pendente / aprovado / ilegivel / reenviado
+    # reenviado: aluno já reenviou depois de uma pendência marcada como
+    # "ilegivel" -- volta pra fila de revisão, mas o painel destaca com
+    # borda vermelha até o revisor aprovar ou marcar como ilegível de novo
+    # (ver routes/painel.py: revisar() e routes/upload.py: reenviar_pendencias()).
     observacao = db.Column(db.Text, nullable=True)  # motivo, quando marcado ilegível
 
     enviado_em = db.Column(db.DateTime, default=datetime.utcnow)
