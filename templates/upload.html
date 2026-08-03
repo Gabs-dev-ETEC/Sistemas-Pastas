@@ -310,6 +310,7 @@
     50% { box-shadow: 0 3px 14px rgba(231, 73, 38, 0.6); }
   }
   .doc-item-pendencia .doc-label { margin-top: 6px; font-size: 0.98rem; }
+  .dica-pdf { display: block; margin-top: 2px; color: var(--tinta-suave); font-weight: 500; }
 
   .doc-icone {
     flex: none;
@@ -1034,8 +1035,9 @@ function renderizarPendencias(pendencias) {
       <div class="doc-texto">
         <div class="doc-label">${doc.label}</div>
         <small>${doc.motivo ? "Motivo: " + doc.motivo : "Nenhum arquivo selecionado"}</small>
+        ${ehPdf ? '<small class="dica-pdf">Corrija esse item diretamente no seu arquivo PDF e envie o PDF completo novamente.</small>' : ""}
       </div>
-      <button type="button" class="doc-botao" onclick="document.getElementById('input-pendencia-${doc.tipo_documento}').click()">Anexar</button>
+      <button type="button" class="doc-botao" onclick="document.getElementById('input-pendencia-${doc.tipo_documento}').click()">${ehPdf ? "Enviar PDF corrigido" : "Anexar"}</button>
       <input type="file" accept="${ehPdf ? "application/pdf" : "image/*"}" ${ehPdf ? "" : 'capture="environment"'} data-tipo="${doc.tipo_documento}" id="input-pendencia-${doc.tipo_documento}" required>
     `;
     listaPendenciasDiv.appendChild(bloco);
