@@ -1,355 +1,263 @@
-import io
 import json
 from datetime import datetime
 
-from flask import (
-    Blueprint,
-    Response,
-    abort,
-    current_app,
-    jsonify,
-    redirect,
-    render_template,
-    request,
-    url_for,
-)
-from flask_login import current_user, login_required, login_user, logout_user
-from PIL import Image
+from flask import Blueprint, current_app, jsonify, render_template, request
 
-from models import (
-    AGUARDANDO_VALIDACAO,
-    APROVADO,
-    REPROVADO,
-    Aluno,
-    DocumentoEnviado,
-    Revisor,
-    db,
-)
-from services.capacitacao_generator import ModeloNaoEncontrado, gerar_pdf_capacitacao
+from models import APROVADO, AGUARDANDO_VALIDACAO, REPROVADO, db, Aluno, DocumentoEnviado
 from services.documentos_config import documentos_aplicaveis, label_por_id
 from services.drive_client import DriveClient
-from services.email_client import EmailNaoConfigurado, corpo_aprovacao, corpo_pendencia, enviar_email
-from services.pdf_converter import documentos_para_pdf_unico, eh_pdf, juntar_pdfs, sanitizar_nome
 from services.sheets_client import SheetsClient
+from services.siga_client import AlunoNaoEncontrado, SigaAPIError, SigaClient
 
-painel_bp = Blueprint("painel", __name__, url_prefix="/painel")
+upload_bp = Blueprint("upload", __name__)
 
 
-def _detectar_mimetype(conteudo: bytes) -> str:
-    """Descobre o content-type certo pra servir o arquivo de volta pro navegador."""
-    if eh_pdf(conteudo):
-        return "application/pdf"
+@upload_bp.route("/")
+def formulario():
+    return render_template("upload.html")
+
+
+@upload_bp.route("/buscar-cpf", methods=["POST"])
+def buscar_cpf():
+    """
+    Recebe o CPF informado pelo aluno e devolve o que a tela precisa
+    mostrar antes de liberar o envio de documentos:
+
+    - "aguardando_validacao": já tem envio dessa pessoa esperando revisão
+    - "aprovado": documentação dessa pessoa já foi conferida e aprovada
+    - "pendencia": a secretaria encontrou problema em algum(ns) documento(s)
+      específico(s) -- devolve só esses itens (id + motivo) pra pessoa
+      reenviar apenas o que falta, sem repetir o que já estava ok
+    - "novo": ainda não tem envio -- devolve nome/curso/email/telefone
+      buscados no SIGA pra pessoa conferir na tela antes de continuar
+    """
+    cpf = (request.get_json(silent=True) or {}).get("cpf", "").strip()
+    cpf_limpo = "".join(c for c in cpf if c.isdigit())
+    if len(cpf_limpo) != 11:
+        return jsonify({"erro": "CPF inválido."}), 400
+
+    aluno_existente = Aluno.query.filter_by(cpf=cpf_limpo).first()
+    if aluno_existente and aluno_existente.status == APROVADO:
+        return jsonify({"status": "aprovado"})
+    if aluno_existente and aluno_existente.status == AGUARDANDO_VALIDACAO:
+        return jsonify({"status": "aguardando_validacao"})
+
+    if aluno_existente and aluno_existente.status == REPROVADO:
+        pendentes = (
+            DocumentoEnviado.query.filter_by(aluno_id=aluno_existente.id, status="ilegivel")
+            .order_by(DocumentoEnviado.id.asc())
+            .all()
+        )
+        pendencias = [
+            {
+                "tipo_documento": doc.tipo_documento,
+                "label": label_por_id(doc.tipo_documento),
+                "motivo": doc.observacao or "",
+            }
+            for doc in pendentes
+        ]
+        return jsonify(
+            {
+                "status": "pendencia",
+                "aluno_id": aluno_existente.id,
+                "nome": aluno_existente.nome,
+                "pendencias": pendencias,
+            }
+        )
+
+    # CPF realmente novo: busca os dados cadastrais no SIGA pra pessoa
+    # conferir antes de prosseguir.
     try:
-        with Image.open(io.BytesIO(conteudo)) as imagem:
-            formato = (imagem.format or "JPEG").upper()
-    except Exception:
-        formato = "JPEG"
-    return "image/jpeg" if formato == "JPEG" else f"image/{formato.lower()}"
-
-
-def _avisar_aluno_por_email(aluno, assunto: str, corpo: str) -> None:
-    """
-    Envia o aviso por e-mail pro aluno. Nunca lança exceção pra fora --
-    se o SMTP não estiver configurado, o aluno não tiver e-mail salvo, ou o
-    envio falhar por qualquer motivo, só loga o erro. A aprovação/reprovação
-    em si (banco + Drive) já está garantida antes dessa chamada acontecer,
-    então um problema aqui não pode derrubar a resposta pro revisor.
-    """
-    if not aluno.email:
-        current_app.logger.warning(
-            "Aluno %s (id=%s) sem e-mail cadastrado -- aviso não enviado.",
-            aluno.nome, aluno.id,
+        siga = SigaClient(
+            current_app.config["SIGA_BASE_URL"], current_app.config["SIGA_API_KEY"]
         )
-        return
-    try:
-        enviar_email(
-            host=current_app.config["SMTP_HOST"],
-            port=current_app.config["SMTP_PORT"],
-            usuario=current_app.config["SMTP_USER"],
-            senha=current_app.config["SMTP_SENHA"],
-            remetente_nome=current_app.config["SMTP_REMETENTE_NOME"],
-            destinatario=aluno.email,
-            assunto=assunto,
-            corpo_texto=corpo,
-        )
-    except EmailNaoConfigurado:
-        current_app.logger.warning(
-            "SMTP não configurado (SMTP_USER/SMTP_SENHA) -- aviso por e-mail não enviado "
-            "para aluno_id=%s.", aluno.id,
-        )
-    except Exception:
-        current_app.logger.exception(
-            "Falha ao enviar e-mail de aviso para aluno_id=%s.", aluno.id
-        )
+        dados = siga.buscar_aluno_por_cpf(cpf_limpo)
+    except AlunoNaoEncontrado:
+        return jsonify({"erro": "CPF não encontrado no SIGA. Confira o número digitado."}), 404
+    except SigaAPIError:
+        current_app.logger.exception("Falha ao consultar o SIGA para o CPF informado.")
+        return jsonify({"erro": "Não foi possível consultar o SIGA agora. Tente novamente em instantes."}), 502
+
+    return jsonify({"status": "novo", **dados})
 
 
-@painel_bp.route("/setup-inicial", methods=["GET", "POST"])
-def setup_inicial():
-
-    token_esperado = current_app.config.get("SETUP_TOKEN", "")
-    if not token_esperado or request.args.get("token") != token_esperado:
-        abort(404)
-
-    mensagem = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        nome = request.form.get("nome", "").strip()
-        senha = request.form.get("senha", "")
-
-        if not username or not nome or not senha:
-            mensagem = "Preencha usuário, nome e senha."
-        else:
-            revisor = Revisor.query.filter_by(username=username).first()
-            if revisor is None:
-                revisor = Revisor(username=username, nome=nome)
-                db.session.add(revisor)
-            else:
-                revisor.nome = nome
-            revisor.set_senha(senha)
-            db.session.commit()
-            mensagem = f"Revisor '{username}' criado/atualizado com sucesso."
-
-    return render_template(
-        "setup_inicial.html", mensagem=mensagem, token=request.args.get("token")
-    )
-
-
-@painel_bp.route("/login", methods=["GET", "POST"])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for("painel.lista"))
-
-    erro = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        senha = request.form.get("senha", "")
-        revisor = Revisor.query.filter_by(username=username).first()
-        if revisor and revisor.checar_senha(senha):
-            login_user(revisor)
-            return redirect(request.args.get("next") or url_for("painel.lista"))
-        erro = "Usuário ou senha inválidos."
-
-    return render_template("login.html", erro=erro)
-
-
-@painel_bp.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for("painel.login"))
-
-
-@painel_bp.route("/aluno/<int:aluno_id>/excluir", methods=["POST"])
-@login_required
-def excluir(aluno_id):
+@upload_bp.route("/reenviar-pendencias", methods=["POST"])
+def reenviar_pendencias():
     """
-    Exclui completamente o envio de documentação de um aluno (o registro
-    do aluno e todos os documentos anexados). Não mexe em nada que já
-    tenha ido pro Drive/planilha -- só limpa o que está no banco, pra
-    liberar o CPF pra um novo envio do zero. Ação irreversível.
+    Recebe só os arquivos dos documentos que o revisor marcou como
+    ilegíveis/pendentes (ver routes/painel.py: reprovar()) -- os demais
+    documentos, já enviados e ok, não são tocados. Ao final, o aluno
+    volta pra fila de revisão (AGUARDANDO_VALIDACAO).
     """
-    aluno = Aluno.query.get_or_404(aluno_id)
-    DocumentoEnviado.query.filter_by(aluno_id=aluno.id).delete()
-    db.session.delete(aluno)
+    aluno_id = request.form.get("aluno_id", "").strip()
+    if not aluno_id.isdigit():
+        return jsonify({"erro": "Requisição inválida."}), 400
+
+    aluno = Aluno.query.get(int(aluno_id))
+    if aluno is None or aluno.status != REPROVADO:
+        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+
+    pendentes = DocumentoEnviado.query.filter_by(aluno_id=aluno.id, status="ilegivel").all()
+    if not pendentes:
+        return jsonify({"erro": "Não há pendência aberta pra esse envio."}), 400
+
+    faltando = [
+        label_por_id(doc.tipo_documento)
+        for doc in pendentes
+        if doc.tipo_documento not in request.files
+    ]
+    if faltando:
+        return jsonify({"erro": f"Documentos faltando: {', '.join(faltando)}"}), 400
+
+    for doc in pendentes:
+        arquivo = request.files[doc.tipo_documento]
+        doc.conteudo = arquivo.read()
+        doc.nome_arquivo = arquivo.filename or doc.nome_arquivo
+        # "reenviado" (em vez de voltar direto pra "pendente") -- assim o
+        # painel (routes/painel.py: revisar()) consegue destacar com borda
+        # vermelha só os documentos que foram reenviados após pendência,
+        # diferenciando de um documento comum que nunca foi rejeitado.
+        # `observacao` é mantida de propósito (não é zerada aqui) pra o
+        # revisor ver qual foi o motivo original ao conferir o reenvio.
+        doc.status = "reenviado"
+
+    # Volta pra fila de revisão -- os documentos que já estavam ok
+    # continuam como estavam, só os reenviados aqui foram tocados.
+    aluno.status = AGUARDANDO_VALIDACAO
+    aluno.avaliado_por = None
+    aluno.avaliado_em = None
+
     db.session.commit()
+
     return jsonify({"status": "ok"})
 
 
-@painel_bp.route("/")
-@login_required
-def lista():
-    alunos = (
-        Aluno.query.filter_by(status=AGUARDANDO_VALIDACAO)
-        .order_by(Aluno.criado_em.asc())
-        .all()
-    )
-    return render_template("lista.html", alunos=alunos)
+@upload_bp.route("/enviar", methods=["POST"])
+def enviar():
+    nome = request.form.get("nome", "").strip()
+    curso = request.form.get("curso", "").strip()
+    cpf_bruto = request.form.get("cpf", "").strip()
+    cpf = "".join(c for c in cpf_bruto if c.isdigit())
+    email = request.form.get("email", "").strip()
+    telefone = request.form.get("telefone", "").strip()
+    sexo = request.form.get("sexo", "").strip()
+    rg_sem_cpf = request.form.get("rg_sem_cpf") == "on"
+    forma_envio = request.form.get("forma_envio", "individual").strip()
+    if forma_envio not in ("individual", "pdf_unico"):
+        forma_envio = "individual"
 
+    if not nome or not curso or not sexo or not cpf:
+        return jsonify({"erro": "Nome, curso, CPF e sexo são obrigatórios."}), 400
 
-@painel_bp.route("/aluno/<int:aluno_id>")
-@login_required
-def revisar(aluno_id):
-    aluno = Aluno.query.get_or_404(aluno_id)
-    documentos = (
-        DocumentoEnviado.query.filter_by(aluno_id=aluno.id)
-        .order_by(DocumentoEnviado.id.asc())
-        .all()
-    )
-    # `label` e `eh_pdf` não são colunas do modelo -- são só atributos em
-    # memória pra o template mostrar o nome bonito (ex: "RG - Frente" em
-    # vez de "rg_frente") e decidir entre exibir <img> ou um link de PDF.
-    for doc in documentos:
-        doc.label = label_por_id(doc.tipo_documento)
-        doc.eh_pdf = eh_pdf(doc.conteudo) if doc.conteudo else False
+    respostas = {
+        "sexo": sexo,
+        "rg_tem_cpf": not rg_sem_cpf,
+    }
+    obrigatorios = documentos_aplicaveis(respostas)
 
-    # True enquanto o aluno está com pendência aberta (REPROVADO) e ainda
-    # não reenviou nada -- o template usa isso pra mostrar a etiqueta
-    # tracejada "DOCUMENTO SOLICITADO" em vez do checklist normal de
-    # revisão. Estava referenciado no template mas nunca era passado pela
-    # rota, então essa parte nunca funcionava.
-    aguardando_reenvio = aluno.status == REPROVADO
+    # Se já existe um registro desse CPF (ex: envio anterior foi reprovado
+    # e a pessoa está reenviando), reaproveita a linha em vez de tentar
+    # inserir outra -- cpf é unique, então um INSERT novo aqui sempre
+    # daria IntegrityError. Também limpa documentos e avaliação anteriores.
+    aluno = Aluno.query.filter_by(cpf=cpf).first()
+    if aluno is not None:
+        DocumentoEnviado.query.filter_by(aluno_id=aluno.id).delete()
+        aluno.nome = nome
+        aluno.curso = curso
+        aluno.email = email
+        aluno.sexo = sexo
+        aluno.forma_envio = forma_envio
+        aluno.status = AGUARDANDO_VALIDACAO
+        aluno.avaliado_por = None
+        aluno.avaliado_em = None
+        aluno.checklist_pdf_unico = None
+        aluno.drive_file_id = None
+        aluno.drive_url = None
+        aluno.pdf_gerado_em = None
+        aluno.criado_em = datetime.utcnow()
+    else:
+        aluno = Aluno(nome=nome, cpf=cpf, curso=curso, sexo=sexo, email=email, forma_envio=forma_envio)
+        db.session.add(aluno)
 
-    # Quando o aluno mandou um único PDF com tudo (forma_envio ==
-    # "pdf_unico"), não temos um arquivo por documento pra conferir -- em
-    # vez disso mostramos o checklist que o próprio aluno preencheu,
-    # dizendo o que ele afirma que está dentro do PDF.
-    checklist = None
-    if aluno.forma_envio == "pdf_unico":
-        respostas = {"sexo": aluno.sexo, "rg_tem_cpf": True}
+    db.session.flush()  # garante aluno.id antes de criar os documentos
+
+    if forma_envio == "pdf_unico":
+        # Aluno optou por mandar um único PDF com toda a documentação em
+        # vez de um arquivo por documento. Nesse caso não dá pra conferir
+        # arquivo por arquivo -- em vez disso exigimos que o aluno confirme,
+        # num checklist, quais documentos estão dentro desse PDF, e essa
+        # lista fica salva pra secretaria conferir contra o PDF enviado.
+        arquivo_pdf = request.files.get("pdf_completo")
+        if arquivo_pdf is None or not arquivo_pdf.filename:
+            return jsonify({"erro": "Envie o arquivo PDF com a documentação completa."}), 400
+
         try:
-            marcados = set(json.loads(aluno.checklist_pdf_unico or "[]"))
+            checklist_ids = json.loads(request.form.get("checklist", "[]"))
         except ValueError:
-            marcados = set()
-        checklist = [
-            {"label": doc.label, "marcado": doc.id in marcados}
-            for doc in documentos_aplicaveis(respostas)
-        ]
+            checklist_ids = []
+        if not isinstance(checklist_ids, list):
+            checklist_ids = []
 
-    # O template ficou salvo como templates/painel.py (extensão errada --
-    # o conteúdo é HTML normal). Renderiza normal, mas o ideal é renomear
-    # esse arquivo pra templates/painel.html numa próxima limpeza.
-    return render_template(
-        "painel.py",
-        aluno=aluno,
-        documentos=documentos,
-        checklist=checklist,
-        aguardando_reenvio=aguardando_reenvio,
-    )
+        faltando = [doc.label for doc in obrigatorios if doc.id not in checklist_ids]
+        if faltando:
+            return jsonify(
+                {"erro": f"Confirme no checklist que o PDF contém: {', '.join(faltando)}"}
+            ), 400
 
-
-@painel_bp.route("/aluno/<int:aluno_id>/documento/<int:documento_id>/imagem")
-@login_required
-def imagem_documento(aluno_id, documento_id):
-    doc = DocumentoEnviado.query.filter_by(id=documento_id, aluno_id=aluno_id).first()
-    if doc is None or not doc.conteudo:
-        abort(404)
-    return Response(doc.conteudo, mimetype=_detectar_mimetype(doc.conteudo))
-
-
-@painel_bp.route("/aluno/<int:aluno_id>/aprovar", methods=["POST"])
-@login_required
-def aprovar(aluno_id):
-    aluno = Aluno.query.get_or_404(aluno_id)
-    if aluno.status != AGUARDANDO_VALIDACAO:
-        return jsonify({"erro": "Esse aluno já foi avaliado."}), 400
-
-    documentos = (
-        DocumentoEnviado.query.filter_by(aluno_id=aluno.id)
-        .order_by(DocumentoEnviado.id.asc())
-        .all()
-    )
-    if not documentos or any(doc.conteudo is None for doc in documentos):
-        return jsonify({"erro": "Documentação incompleta -- não dá pra gerar o PDF final."}), 400
-    if any(doc.status == "ilegivel" for doc in documentos):
-        return jsonify(
-            {"erro": "Há documentos marcados como pendentes/ilegíveis. Use \"Enviar pendências\"."}
-        ), 400
-
-    # Junta as fotos de todos os documentos num único PDF, igual ao
-    # fluxo de envio original (routes/upload.py: enviar()).
-    imagens = [doc.conteudo for doc in documentos]
-    pdf_documentos = documentos_para_pdf_unico(imagens)
-
-    try:
-        pdf_capacitacao = gerar_pdf_capacitacao(
-            sanitizar_nome(aluno.curso), aluno.nome, aluno.cpf
+        conteudo_pdf = arquivo_pdf.read()
+        registro = DocumentoEnviado(
+            aluno_id=aluno.id,
+            tipo_documento="pdf_completo",
+            nome_arquivo=arquivo_pdf.filename or "documentacao-completa.pdf",
+            conteudo=conteudo_pdf,
+            status="pendente",
         )
-        pdf_bytes = juntar_pdfs([pdf_documentos, pdf_capacitacao])
-    except ModeloNaoEncontrado:
-        current_app.logger.warning(
-            "Sem modelo de capacitação para o curso '%s' -- aprovando só com os documentos.",
-            aluno.curso,
-        )
-        pdf_bytes = pdf_documentos
+        db.session.add(registro)
+        aluno.checklist_pdf_unico = json.dumps(checklist_ids)
+    else:
+        # Valida que todos os arquivos exigidos por essas respostas
+        # realmente vieram na requisição -- o front já faz isso, mas o
+        # backend não confia cegamente no front.
+        faltando = [doc.label for doc in obrigatorios if doc.id not in request.files]
+        if faltando:
+            return jsonify({"erro": f"Documentos faltando: {', '.join(faltando)}"}), 400
 
-    drive = DriveClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
-    pasta_curso_id = drive.obter_ou_criar_pasta(
-        sanitizar_nome(aluno.curso), current_app.config["DRIVE_PASTA_RAIZ_ID"]
-    )
-    pasta_aluno_id = drive.obter_ou_criar_pasta(sanitizar_nome(aluno.nome), pasta_curso_id)
-    nome_arquivo = f"{sanitizar_nome(aluno.nome)}_{sanitizar_nome(aluno.curso)}.pdf"
-    resultado = drive.enviar_pdf(nome_arquivo, pdf_bytes, pasta_aluno_id)
-
-    aluno.status = APROVADO
-    aluno.avaliado_por = current_user.nome
-    aluno.avaliado_em = datetime.utcnow()
-    aluno.drive_file_id = resultado["id"]
-    aluno.drive_url = resultado["url"]
-    aluno.pdf_gerado_em = datetime.utcnow()
-
-    # Descarta as imagens guardadas no banco -- só existiam pra essa
-    # revisão; o PDF final já está no Drive.
-    for doc in documentos:
-        doc.conteudo = None
-        doc.status = "aprovado"
+        # Guarda a foto (ou PDF, se o aluno usou "Anexar arquivo") de cada
+        # documento aguardando revisão. O PDF final só é gerado (documentos
+        # + certificado de capacitação) e sobe pro Drive quando um revisor
+        # aprova no painel -- ver routes/painel.py: aprovar().
+        for doc in obrigatorios:
+            arquivo = request.files[doc.id]
+            registro = DocumentoEnviado(
+                aluno_id=aluno.id,
+                tipo_documento=doc.id,
+                nome_arquivo=arquivo.filename or f"{doc.id}.jpg",
+                conteudo=arquivo.read(),
+                status="pendente",
+            )
+            db.session.add(registro)
 
     db.session.commit()
 
-    # Marca na planilha de controle quem aprovou. Feito depois do commit
-    # de propósito: se a planilha falhar (fora do ar, renomeada, etc.), a
-    # aprovação em si (banco + Drive) já está garantida -- só loga o erro
-    # em vez de derrubar a resposta pro revisor.
+    # Registra a linha na planilha de controle (Nome | CPF | Curso |
+    # Data de Envio | Dias Úteis desde Envio | Status) assim que o aluno
+    # envia -- a planilha serve pra secretaria acompanhar prazo, então não
+    # espera a revisão. Não deve travar o envio se der problema na
+    # planilha -- os documentos já foram salvos no banco nesse ponto.
     try:
+        drive = DriveClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
         sheets = SheetsClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
         planilha_id = sheets.obter_ou_criar_planilha(
             current_app.config["NOME_PLANILHA_CONTROLE"],
             current_app.config["DRIVE_PASTA_RAIZ_ID"],
             drive,
         )
-        sheets.marcar_aprovado(planilha_id, aluno.cpf, current_user.nome)
+        sheets.adicionar_linha(
+            planilha_id, nome, cpf, curso, aluno.criado_em.strftime("%d/%m/%Y")
+        )
     except Exception:
         current_app.logger.exception(
-            "Falha ao marcar 'Aprovado por' na planilha de controle (aluno_id=%s)", aluno.id
+            "Falha ao registrar envio na planilha de controle (aluno_id=%s)", aluno.id
         )
 
-    _avisar_aluno_por_email(
-        aluno, "Documentação aprovada", corpo_aprovacao(aluno.nome)
-    )
-
-    return jsonify({"status": "ok", "drive_url": aluno.drive_url})
-
-
-@painel_bp.route("/aluno/<int:aluno_id>/reprovar", methods=["POST"])
-@login_required
-def reprovar(aluno_id):
-    aluno = Aluno.query.get_or_404(aluno_id)
-    if aluno.status != AGUARDANDO_VALIDACAO:
-        return jsonify({"erro": "Esse aluno já foi avaliado."}), 400
-
-    dados = request.get_json(silent=True) or {}
-    pendencias = dados.get("pendencias") or []
-    if not pendencias:
-        return jsonify({"erro": "Informe ao menos uma pendência."}), 400
-
-    algum_marcado = False
-    labels_pendencias = []
-    for pendencia in pendencias:
-        doc = DocumentoEnviado.query.filter_by(
-            id=pendencia.get("documento_id"), aluno_id=aluno.id
-        ).first()
-        if doc is None:
-            continue
-        doc.status = "ilegivel"
-        doc.observacao = (pendencia.get("motivo") or "").strip()
-        algum_marcado = True
-        rotulo = label_por_id(doc.tipo_documento)
-        labels_pendencias.append(f"{rotulo} ({doc.observacao})" if doc.observacao else rotulo)
-
-    if not algum_marcado:
-        return jsonify({"erro": "Nenhum dos documentos informados pertence a esse aluno."}), 400
-
-    # Libera o CPF pra reenvio -- routes/upload.py (buscar_cpf) trata
-    # "reprovado" igual a "novo", liberando o aluno a mandar tudo de novo.
-    aluno.status = REPROVADO
-    aluno.avaliado_por = current_user.nome
-    aluno.avaliado_em = datetime.utcnow()
-
-    db.session.commit()
-
-    _avisar_aluno_por_email(
-        aluno,
-        "Pendência na sua documentação",
-        corpo_pendencia(aluno.nome, labels_pendencias, aluno.forma_envio),
-    )
-
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "aluno_id": aluno.id})
