@@ -1,259 +1,355 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<link rel="icon" type="image/png" href="{{ url_for('static', filename='logo-icone.png') }}">
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revisar - {{ aluno.nome }}</title>
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --azul: #00609F; --azul-escuro: #063C63; --azul-fundo: #EAF3FA;
-    --ambar: #F28B1F; --laranja: #E74926; --tinta: #10293D; --tinta-suave: #4C6478;
-    --branco: #FFFFFF; --verde: #13A438; --verde-fundo: #E8F7EC;
-    --vermelho: #E74926; --vermelho-fundo: #FDECEA; --raio: 16px;
-    --sombra: 0 6px 20px rgba(6, 60, 99, 0.08);
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: 'Inter', system-ui, sans-serif; margin: 0; min-height: 100vh;
-    background: #F7FBFE; color: var(--tinta); padding: 20px 16px 100px;
-  }
-  .topo { max-width: 640px; margin: 0 auto 18px; }
-  .voltar { color: var(--azul); font-size: 0.85rem; text-decoration: none; font-weight: 600; }
-  h1 { font-family: 'Baloo 2', sans-serif; color: var(--azul-escuro); font-size: 1.4rem; margin: 10px 0 2px; }
-  .subtitulo { color: var(--tinta-suave); font-size: 0.9rem; margin: 0; }
+import io
+import json
+from datetime import datetime
 
-  .lista-docs { max-width: 640px; margin: 20px auto; display: flex; flex-direction: column; gap: 14px; }
-  .doc-card { background: var(--branco); border-radius: var(--raio); box-shadow: var(--sombra); overflow: hidden; }
-  .doc-card img { width: 100%; max-height: 340px; object-fit: contain; background: #eef4f8; display: block; }
-  .doc-pdf {
-    display: flex; align-items: center; gap: 10px; padding: 16px;
-    background: #eef4f8; color: var(--azul-escuro); font-weight: 700;
-    text-decoration: none; font-size: 0.95rem;
-  }
-  .doc-pdf svg { flex: none; width: 22px; height: 22px; }
-  .doc-card .corpo { padding: 14px 16px; }
-  .doc-card .doc-label { font-weight: 700; font-size: 0.95rem; }
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
+from flask_login import current_user, login_required, login_user, logout_user
+from PIL import Image
 
-  .doc-card.marcado { border: 2px solid var(--vermelho); }
+from models import (
+    AGUARDANDO_VALIDACAO,
+    APROVADO,
+    REPROVADO,
+    Aluno,
+    DocumentoEnviado,
+    Revisor,
+    db,
+)
+from services.capacitacao_generator import ModeloNaoEncontrado, gerar_pdf_capacitacao
+from services.documentos_config import documentos_aplicaveis, label_por_id
+from services.drive_client import DriveClient
+from services.email_client import EmailNaoConfigurado, corpo_aprovacao, corpo_pendencia, enviar_email
+from services.pdf_converter import documentos_para_pdf_unico, eh_pdf, juntar_pdfs, sanitizar_nome
+from services.sheets_client import SheetsClient
 
-  .doc-card.doc-card-pendencia {
-    position: relative;
-    border: 2px dashed var(--laranja);
-  }
-  .etiqueta-solicitado {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--laranja);
-    color: #fff;
-    font-size: 0.66rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    padding: 5px 11px 5px 9px;
-    border-radius: 999px;
-    box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4);
-    animation: pulso-etiqueta 1.8s ease-in-out infinite;
-  }
-  .etiqueta-solicitado svg { width: 12px; height: 12px; flex: none; }
-  @keyframes pulso-etiqueta {
-    0%, 100% { box-shadow: 0 3px 10px rgba(231, 73, 38, 0.4); }
-    50% { box-shadow: 0 3px 16px rgba(231, 73, 38, 0.65); }
-  }
+painel_bp = Blueprint("painel", __name__, url_prefix="/painel")
 
-  .toggle-ilegivel {
-    display: flex; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer;
-    font-size: 0.85rem; font-weight: 600; color: var(--vermelho);
-  }
-  .campo-motivo {
-    display: none; margin-top: 10px; width: 100%; padding: 10px 12px;
-    border: 1.5px solid #F3C6BE; border-radius: 10px; font-family: inherit; font-size: 0.88rem;
-    background: var(--vermelho-fundo);
-  }
-  .doc-card.marcado .campo-motivo { display: block; }
 
-  .rodape-acoes {
-    position: fixed; bottom: 0; left: 0; right: 0; background: var(--branco);
-    box-shadow: 0 -4px 16px rgba(0,0,0,0.08); padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-  }
-  .rodape-acoes .conteudo { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
-  button {
-    flex: 1; border: none; border-radius: 13px; padding: 14px; font-size: 0.95rem;
-    font-weight: 700; font-family: inherit; cursor: pointer;
-  }
-  .btn-aprovar { background: linear-gradient(135deg, var(--verde), #0e8a2c); color: white; }
-  .btn-reprovar { background: var(--vermelho-fundo); color: var(--vermelho); }
-  button:disabled { opacity: 0.6; cursor: not-allowed; }
+def _detectar_mimetype(conteudo: bytes) -> str:
+    """Descobre o content-type certo pra servir o arquivo de volta pro navegador."""
+    if eh_pdf(conteudo):
+        return "application/pdf"
+    try:
+        with Image.open(io.BytesIO(conteudo)) as imagem:
+            formato = (imagem.format or "JPEG").upper()
+    except Exception:
+        formato = "JPEG"
+    return "image/jpeg" if formato == "JPEG" else f"image/{formato.lower()}"
 
-  .status-msg { max-width: 640px; margin: 10px auto 0; text-align: center; font-size: 0.88rem; font-weight: 600; }
 
-  .aviso-pendencia {
-    max-width: 640px; margin: 0 auto 20px; padding: 14px 16px; border-radius: 12px;
-    background: var(--vermelho-fundo); color: var(--vermelho); font-size: 0.88rem; font-weight: 600;
-  }
-</style>
-</head>
-<body>
+def _avisar_aluno_por_email(aluno, assunto: str, corpo: str) -> None:
+    """
+    Envia o aviso por e-mail pro aluno. Nunca lança exceção pra fora --
+    se o SMTP não estiver configurado, o aluno não tiver e-mail salvo, ou o
+    envio falhar por qualquer motivo, só loga o erro. A aprovação/reprovação
+    em si (banco + Drive) já está garantida antes dessa chamada acontecer,
+    então um problema aqui não pode derrubar a resposta pro revisor.
+    """
+    if not aluno.email:
+        current_app.logger.warning(
+            "Aluno %s (id=%s) sem e-mail cadastrado -- aviso não enviado.",
+            aluno.nome, aluno.id,
+        )
+        return
+    try:
+        enviar_email(
+            host=current_app.config["SMTP_HOST"],
+            port=current_app.config["SMTP_PORT"],
+            usuario=current_app.config["SMTP_USER"],
+            senha=current_app.config["SMTP_SENHA"],
+            remetente_nome=current_app.config["SMTP_REMETENTE_NOME"],
+            destinatario=aluno.email,
+            assunto=assunto,
+            corpo_texto=corpo,
+        )
+    except EmailNaoConfigurado:
+        current_app.logger.warning(
+            "SMTP não configurado (SMTP_USER/SMTP_SENHA) -- aviso por e-mail não enviado "
+            "para aluno_id=%s.", aluno.id,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Falha ao enviar e-mail de aviso para aluno_id=%s.", aluno.id
+        )
 
-  <div class="topo">
-    <a class="voltar" href="{{ url_for('painel.lista') }}">← Voltar</a>
-    <h1>{{ aluno.nome }}</h1>
-    <p class="subtitulo">{{ aluno.curso }} · CPF {{ aluno.cpf }} · enviado em {{ aluno.criado_em.strftime('%d/%m/%Y') }}</p>
-  </div>
 
-  {% if aguardando_reenvio %}
-  <div class="aviso-pendencia">
-    Pendência já enviada pra esse aluno -- aguardando ele reenviar os documentos marcados abaixo. A revisão libera de novo assim que ele reenviar.
-  </div>
-  {% endif %}
+@painel_bp.route("/setup-inicial", methods=["GET", "POST"])
+def setup_inicial():
 
-  <div class="lista-docs" id="lista-docs">
-    {% for doc in documentos %}
-    <div class="doc-card{% if aguardando_reenvio and doc.status == 'ilegivel' %} doc-card-pendencia{% endif %}" id="doc-{{ doc.id }}" data-doc-id="{{ doc.id }}">
-      {% if aguardando_reenvio and doc.status == 'ilegivel' %}
-      <span class="etiqueta-solicitado">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
-        DOCUMENTO SOLICITADO
-      </span>
-      {% endif %}
-      {% if doc.eh_pdf %}
-      <a class="doc-pdf" href="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0-12 4 4m-4-4-4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-        Abrir PDF em nova aba
-      </a>
-      {% else %}
-      <img src="{{ url_for('painel.imagem_documento', aluno_id=aluno.id, documento_id=doc.id) }}" alt="{{ doc.tipo_documento }}">
-      {% endif %}
-      <div class="corpo">
-        <div class="doc-label">{{ doc.label }}</div>
-        {% if aguardando_reenvio %}
-          {% if doc.status == "ilegivel" %}
-          <label class="toggle-ilegivel" style="color:var(--vermelho);">Pendente: {{ doc.observacao or "sem motivo informado" }}</label>
-          {% endif %}
-        {% else %}
-        <label class="toggle-ilegivel">
-          <input type="checkbox" class="check-ilegivel">
-          Marcar como pendente/ilegível
-        </label>
-        <textarea class="campo-motivo" rows="2" placeholder="Explique o que precisa ser reenviado (ex: RG cortado, comprovante vencido)"></textarea>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+    token_esperado = current_app.config.get("SETUP_TOKEN", "")
+    if not token_esperado or request.args.get("token") != token_esperado:
+        abort(404)
 
-  <div class="rodape-acoes">
-    <div class="conteudo">
-      <button type="button" class="btn-reprovar" id="btn-reprovar">Enviar pendências</button>
-      <button type="button" class="btn-aprovar" id="btn-aprovar">Aprovar documentação</button>
-    </div>
-    <div class="status-msg" id="status-msg"></div>
-  </div>
+    mensagem = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        nome = request.form.get("nome", "").strip()
+        senha = request.form.get("senha", "")
 
-<script>
-const alunoId = {{ aluno.id }};
+        if not username or not nome or not senha:
+            mensagem = "Preencha usuário, nome e senha."
+        else:
+            revisor = Revisor.query.filter_by(username=username).first()
+            if revisor is None:
+                revisor = Revisor(username=username, nome=nome)
+                db.session.add(revisor)
+            else:
+                revisor.nome = nome
+            revisor.set_senha(senha)
+            db.session.commit()
+            mensagem = f"Revisor '{username}' criado/atualizado com sucesso."
 
-document.querySelectorAll('.check-ilegivel').forEach((chk) => {
-  chk.addEventListener('change', () => {
-    chk.closest('.doc-card').classList.toggle('marcado', chk.checked);
-  });
-});
+    return render_template(
+        "setup_inicial.html", mensagem=mensagem, token=request.args.get("token")
+    )
 
-const statusMsg = document.getElementById('status-msg');
-const btnAprovar = document.getElementById('btn-aprovar');
-const btnReprovar = document.getElementById('btn-reprovar');
 
-btnAprovar.addEventListener('click', async () => {
-  const marcados = document.querySelectorAll('.doc-card.marcado');
-  if (marcados.length > 0) {
-    statusMsg.style.color = '#c5221f';
-    statusMsg.textContent = 'Você marcou documentos como pendentes -- use "Enviar pendências" em vez de aprovar.';
-    return;
-  }
-  if (!confirm('Confirma que a documentação está completa e legível? Isso vai gerar o PDF final e subir pro Drive.')) return;
+@painel_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("painel.lista"))
 
-  btnAprovar.disabled = true;
-  btnReprovar.disabled = true;
-  statusMsg.style.color = '#4C6478';
-  statusMsg.textContent = 'Gerando PDF e enviando pro Drive...';
+    erro = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        senha = request.form.get("senha", "")
+        revisor = Revisor.query.filter_by(username=username).first()
+        if revisor and revisor.checar_senha(senha):
+            login_user(revisor)
+            return redirect(request.args.get("next") or url_for("painel.lista"))
+        erro = "Usuário ou senha inválidos."
 
-  try {
-    const resp = await fetch(`/painel/aluno/${alunoId}/aprovar`, { method: 'POST' });
-    const resultado = await resp.json();
-    if (resp.ok) {
-      statusMsg.style.color = '#137333';
-      statusMsg.textContent = 'Aprovado! Redirecionando...';
-      setTimeout(() => { window.location.href = "{{ url_for('painel.lista') }}"; }, 1200);
-    } else {
-      statusMsg.style.color = '#c5221f';
-      statusMsg.textContent = resultado.erro || 'Erro ao aprovar.';
-      btnAprovar.disabled = false;
-      btnReprovar.disabled = false;
-    }
-  } catch (e) {
-    statusMsg.style.color = '#c5221f';
-    statusMsg.textContent = 'Erro de conexão.';
-    btnAprovar.disabled = false;
-    btnReprovar.disabled = false;
-  }
-});
+    return render_template("login.html", erro=erro)
 
-btnReprovar.addEventListener('click', async () => {
-  const marcados = Array.from(document.querySelectorAll('.doc-card.marcado'));
-  if (marcados.length === 0) {
-    statusMsg.style.color = '#c5221f';
-    statusMsg.textContent = 'Marque ao menos um documento como pendente/ilegível antes de enviar.';
-    return;
-  }
 
-  const pendencias = [];
-  for (const card of marcados) {
-    const motivo = card.querySelector('.campo-motivo').value.trim();
-    if (!motivo) {
-      statusMsg.style.color = '#c5221f';
-      statusMsg.textContent = 'Preencha o motivo de cada documento marcado.';
-      return;
-    }
-    pendencias.push({ documento_id: Number(card.dataset.docId), motivo });
-  }
+@painel_bp.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("painel.login"))
 
-  if (!confirm(`Confirma o envio de ${pendencias.length} pendência(s) para o aluno reenviar?`)) return;
 
-  btnAprovar.disabled = true;
-  btnReprovar.disabled = true;
-  statusMsg.style.color = '#4C6478';
-  statusMsg.textContent = 'Enviando...';
+@painel_bp.route("/aluno/<int:aluno_id>/excluir", methods=["POST"])
+@login_required
+def excluir(aluno_id):
+    """
+    Exclui completamente o envio de documentação de um aluno (o registro
+    do aluno e todos os documentos anexados). Não mexe em nada que já
+    tenha ido pro Drive/planilha -- só limpa o que está no banco, pra
+    liberar o CPF pra um novo envio do zero. Ação irreversível.
+    """
+    aluno = Aluno.query.get_or_404(aluno_id)
+    DocumentoEnviado.query.filter_by(aluno_id=aluno.id).delete()
+    db.session.delete(aluno)
+    db.session.commit()
+    return jsonify({"status": "ok"})
 
-  try {
-    const resp = await fetch(`/painel/aluno/${alunoId}/reprovar`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pendencias }),
-    });
-    const resultado = await resp.json();
-    if (resp.ok) {
-      statusMsg.style.color = '#137333';
-      statusMsg.textContent = 'Pendências registradas! Redirecionando...';
-      setTimeout(() => { window.location.href = "{{ url_for('painel.lista') }}"; }, 1200);
-    } else {
-      statusMsg.style.color = '#c5221f';
-      statusMsg.textContent = resultado.erro || 'Erro ao registrar pendências.';
-      btnAprovar.disabled = false;
-      btnReprovar.disabled = false;
-    }
-  } catch (e) {
-    statusMsg.style.color = '#c5221f';
-    statusMsg.textContent = 'Erro de conexão.';
-    btnAprovar.disabled = false;
-    btnReprovar.disabled = false;
-  }
-});
-</script>
 
-</body>
-</html>
+@painel_bp.route("/")
+@login_required
+def lista():
+    alunos = (
+        Aluno.query.filter_by(status=AGUARDANDO_VALIDACAO)
+        .order_by(Aluno.criado_em.asc())
+        .all()
+    )
+    return render_template("lista.html", alunos=alunos)
+
+
+@painel_bp.route("/aluno/<int:aluno_id>")
+@login_required
+def revisar(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    documentos = (
+        DocumentoEnviado.query.filter_by(aluno_id=aluno.id)
+        .order_by(DocumentoEnviado.id.asc())
+        .all()
+    )
+    # `label` e `eh_pdf` não são colunas do modelo -- são só atributos em
+    # memória pra o template mostrar o nome bonito (ex: "RG - Frente" em
+    # vez de "rg_frente") e decidir entre exibir <img> ou um link de PDF.
+    for doc in documentos:
+        doc.label = label_por_id(doc.tipo_documento)
+        doc.eh_pdf = eh_pdf(doc.conteudo) if doc.conteudo else False
+
+    # True enquanto o aluno está com pendência aberta (REPROVADO) e ainda
+    # não reenviou nada -- o template usa isso pra mostrar a etiqueta
+    # tracejada "DOCUMENTO SOLICITADO" em vez do checklist normal de
+    # revisão. Estava referenciado no template mas nunca era passado pela
+    # rota, então essa parte nunca funcionava.
+    aguardando_reenvio = aluno.status == REPROVADO
+
+    # Quando o aluno mandou um único PDF com tudo (forma_envio ==
+    # "pdf_unico"), não temos um arquivo por documento pra conferir -- em
+    # vez disso mostramos o checklist que o próprio aluno preencheu,
+    # dizendo o que ele afirma que está dentro do PDF.
+    checklist = None
+    if aluno.forma_envio == "pdf_unico":
+        respostas = {"sexo": aluno.sexo, "rg_tem_cpf": True}
+        try:
+            marcados = set(json.loads(aluno.checklist_pdf_unico or "[]"))
+        except ValueError:
+            marcados = set()
+        checklist = [
+            {"label": doc.label, "marcado": doc.id in marcados}
+            for doc in documentos_aplicaveis(respostas)
+        ]
+
+    # O template ficou salvo como templates/painel.py (extensão errada --
+    # o conteúdo é HTML normal). Renderiza normal, mas o ideal é renomear
+    # esse arquivo pra templates/painel.html numa próxima limpeza.
+    return render_template(
+        "painel.py",
+        aluno=aluno,
+        documentos=documentos,
+        checklist=checklist,
+        aguardando_reenvio=aguardando_reenvio,
+    )
+
+
+@painel_bp.route("/aluno/<int:aluno_id>/documento/<int:documento_id>/imagem")
+@login_required
+def imagem_documento(aluno_id, documento_id):
+    doc = DocumentoEnviado.query.filter_by(id=documento_id, aluno_id=aluno_id).first()
+    if doc is None or not doc.conteudo:
+        abort(404)
+    return Response(doc.conteudo, mimetype=_detectar_mimetype(doc.conteudo))
+
+
+@painel_bp.route("/aluno/<int:aluno_id>/aprovar", methods=["POST"])
+@login_required
+def aprovar(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    if aluno.status != AGUARDANDO_VALIDACAO:
+        return jsonify({"erro": "Esse aluno já foi avaliado."}), 400
+
+    documentos = (
+        DocumentoEnviado.query.filter_by(aluno_id=aluno.id)
+        .order_by(DocumentoEnviado.id.asc())
+        .all()
+    )
+    if not documentos or any(doc.conteudo is None for doc in documentos):
+        return jsonify({"erro": "Documentação incompleta -- não dá pra gerar o PDF final."}), 400
+    if any(doc.status == "ilegivel" for doc in documentos):
+        return jsonify(
+            {"erro": "Há documentos marcados como pendentes/ilegíveis. Use \"Enviar pendências\"."}
+        ), 400
+
+    # Junta as fotos de todos os documentos num único PDF, igual ao
+    # fluxo de envio original (routes/upload.py: enviar()).
+    imagens = [doc.conteudo for doc in documentos]
+    pdf_documentos = documentos_para_pdf_unico(imagens)
+
+    try:
+        pdf_capacitacao = gerar_pdf_capacitacao(
+            sanitizar_nome(aluno.curso), aluno.nome, aluno.cpf
+        )
+        pdf_bytes = juntar_pdfs([pdf_documentos, pdf_capacitacao])
+    except ModeloNaoEncontrado:
+        current_app.logger.warning(
+            "Sem modelo de capacitação para o curso '%s' -- aprovando só com os documentos.",
+            aluno.curso,
+        )
+        pdf_bytes = pdf_documentos
+
+    drive = DriveClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
+    pasta_curso_id = drive.obter_ou_criar_pasta(
+        sanitizar_nome(aluno.curso), current_app.config["DRIVE_PASTA_RAIZ_ID"]
+    )
+    pasta_aluno_id = drive.obter_ou_criar_pasta(sanitizar_nome(aluno.nome), pasta_curso_id)
+    nome_arquivo = f"{sanitizar_nome(aluno.nome)}_{sanitizar_nome(aluno.curso)}.pdf"
+    resultado = drive.enviar_pdf(nome_arquivo, pdf_bytes, pasta_aluno_id)
+
+    aluno.status = APROVADO
+    aluno.avaliado_por = current_user.nome
+    aluno.avaliado_em = datetime.utcnow()
+    aluno.drive_file_id = resultado["id"]
+    aluno.drive_url = resultado["url"]
+    aluno.pdf_gerado_em = datetime.utcnow()
+
+    # Descarta as imagens guardadas no banco -- só existiam pra essa
+    # revisão; o PDF final já está no Drive.
+    for doc in documentos:
+        doc.conteudo = None
+        doc.status = "aprovado"
+
+    db.session.commit()
+
+    # Marca na planilha de controle quem aprovou. Feito depois do commit
+    # de propósito: se a planilha falhar (fora do ar, renomeada, etc.), a
+    # aprovação em si (banco + Drive) já está garantida -- só loga o erro
+    # em vez de derrubar a resposta pro revisor.
+    try:
+        sheets = SheetsClient(current_app.config["GOOGLE_CREDENTIALS_JSON"])
+        planilha_id = sheets.obter_ou_criar_planilha(
+            current_app.config["NOME_PLANILHA_CONTROLE"],
+            current_app.config["DRIVE_PASTA_RAIZ_ID"],
+            drive,
+        )
+        sheets.marcar_aprovado(planilha_id, aluno.cpf, current_user.nome)
+    except Exception:
+        current_app.logger.exception(
+            "Falha ao marcar 'Aprovado por' na planilha de controle (aluno_id=%s)", aluno.id
+        )
+
+    _avisar_aluno_por_email(
+        aluno, "Documentação aprovada", corpo_aprovacao(aluno.nome)
+    )
+
+    return jsonify({"status": "ok", "drive_url": aluno.drive_url})
+
+
+@painel_bp.route("/aluno/<int:aluno_id>/reprovar", methods=["POST"])
+@login_required
+def reprovar(aluno_id):
+    aluno = Aluno.query.get_or_404(aluno_id)
+    if aluno.status != AGUARDANDO_VALIDACAO:
+        return jsonify({"erro": "Esse aluno já foi avaliado."}), 400
+
+    dados = request.get_json(silent=True) or {}
+    pendencias = dados.get("pendencias") or []
+    if not pendencias:
+        return jsonify({"erro": "Informe ao menos uma pendência."}), 400
+
+    algum_marcado = False
+    labels_pendencias = []
+    for pendencia in pendencias:
+        doc = DocumentoEnviado.query.filter_by(
+            id=pendencia.get("documento_id"), aluno_id=aluno.id
+        ).first()
+        if doc is None:
+            continue
+        doc.status = "ilegivel"
+        doc.observacao = (pendencia.get("motivo") or "").strip()
+        algum_marcado = True
+        rotulo = label_por_id(doc.tipo_documento)
+        labels_pendencias.append(f"{rotulo} ({doc.observacao})" if doc.observacao else rotulo)
+
+    if not algum_marcado:
+        return jsonify({"erro": "Nenhum dos documentos informados pertence a esse aluno."}), 400
+
+    # Libera o CPF pra reenvio -- routes/upload.py (buscar_cpf) trata
+    # "reprovado" igual a "novo", liberando o aluno a mandar tudo de novo.
+    aluno.status = REPROVADO
+    aluno.avaliado_por = current_user.nome
+    aluno.avaliado_em = datetime.utcnow()
+
+    db.session.commit()
+
+    _avisar_aluno_por_email(
+        aluno,
+        "Pendência na sua documentação",
+        corpo_pendencia(aluno.nome, labels_pendencias, aluno.forma_envio),
+    )
+
+    return jsonify({"status": "ok"})
